@@ -58,6 +58,18 @@ app.post("/webhooks/fpt", (req, res) => {
 Test deliveries are recorded in the FPT admin's deliveries history with `attemptNumber: 0`, so you can distinguish them from production traffic (which always starts at `attemptNumber: 1`).
 </Note>
 
+### Inspect and replay any delivery
+
+From the Webhook Endpoints page, the clock-icon button on any row opens the **deliveries drill-down** — a paged history of every event FPT has fired to that endpoint with:
+
+- **Health strip** — last 24h count, success rate, status, last successful delivery
+- **Time-range filter** — last 1h / 24h / 7d / 30d / all
+- **Status / event type / eventId filters** — slice to just failures, or just a specific event type, or find one event by `eventId` prefix
+- **Click-to-expand row** — see the exact signed JSON body and `X-FPT-Signature` header that we POSTed
+- **Copy as curl** — one-click reproduction of the request as a curl command, with the original signature header preserved so your verifier passes on replay
+
+This makes debugging a partner's failed delivery a 30-second exercise instead of a 30-minute back-and-forth.
+
 ## Recipe 1: webhook.site (zero-code receiver)
 
 The fastest possible test. Use webhook.site to capture raw POSTs and inspect them without writing any code.
@@ -67,10 +79,10 @@ The fastest possible test. Use webhook.site to capture raw POSTs and inspect the
     Open [webhook.site](https://webhook.site) — you'll get a unique URL like `https://webhook.site/8a3f-7c2e-...`
   </Step>
   <Step title="Subscribe in FPT">
-    Settings → Webhook Endpoints → Add Endpoint. Paste your webhook.site URL. Check `contact.updated`. Save.
+    Settings → Webhook Endpoints → Add Endpoint. Paste your webhook.site URL. Check the events you want — for the fastest verification, pick `contact.status_changed` (you can trigger it on demand by moving a test contact between lifecycle groups). Save.
   </Step>
   <Step title="Trigger an event">
-    Edit any test contact and save. Within ~10 seconds, the request appears on webhook.site with full headers (including `X-FPT-Signature`) and body.
+    Easiest path: click the **Send test event** paper-plane icon on your endpoint's row. A dialog opens with a live payload preview and fires a real signed POST to your URL. To verify with a real (non-test) event, move a test contact between lifecycle groups (Lead → Member) — within ~10 seconds, the request lands on webhook.site with full headers (including `X-FPT-Signature`) and body.
   </Step>
   <Step title="Inspect">
     Use webhook.site's UI to expand headers, view the JSON body, and replay the request to a different URL if you want to forward to your local dev server.

@@ -37,10 +37,9 @@
         "pages": [
           "events/overview",
           "events/contact-created",
-          "events/contact-updated",
-          "events/contact-deleted",
           "events/contact-status-changed",
-          "events/contact-sub-group-changed"
+          "events/contact-sub-group-changed",
+          "events/contact-deleted"
         ]
       }
     ]

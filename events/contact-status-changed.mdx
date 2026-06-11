@@ -48,7 +48,7 @@ When a contact transitions between these — like a lead converting to a member,
 
 ### Fields in `data`
 
-The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a status change without subscribing to `contact.updated` or maintaining your own `contactId → identity` lookup.
+The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a status change without maintaining your own `contactId → identity` lookup — the contact's name, email, and phone are right there in the payload.
 
 | Field | Type | Description |
 |---|---|---|
@@ -74,15 +74,6 @@ The payload carries the **identity baseline** (same shape as [`contact.created`]
 - An automation triggers a group change (e.g., "When trial ends → flip to Past Member")
 - Billing lifecycle (e.g., "Member's last payment failed and they churned → flip to Past Member") — when the billing-driven flow eventually publishes its own events (v1.2), you may receive a `payment.failed` or `membership.cancelled` shortly before this
 - A contact-import flow assigns groups in bulk
-
-## Companion `contact.updated`
-
-`contact.status_changed` always fires **alongside** `contact.updated` for the same `contactId`. They share the same change event but represent different abstractions:
-
-- `contact.updated` — "something on this contact changed, look it up"
-- `contact.status_changed` — "specifically the lifecycle group changed, here are the previous and new values"
-
-If you subscribe to both, dedupe in your handler so you only act once per logical change.
 
 ## Important: multiple rapid transitions get coalesced
 

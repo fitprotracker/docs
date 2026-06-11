@@ -10,7 +10,7 @@ A `contact.created` event fires when a brand-new contact record appears in FPT f
 - A self-service signup form (kiosk, public web form) submits
 
 <Note>
-We only fire `contact.created` for genuinely new contacts going forward. Contacts that existed before this event type was rolled out won't retroactively fire `created` — they'll just appear in `contact.updated` events when next touched.
+We only fire `contact.created` for genuinely new contacts going forward. Contacts that existed before this event type was rolled out won't retroactively fire `created`. If you need to seed your system with pre-existing contacts, use the FPT admin's CSV export — webhooks are a forward-looking event stream, not a historical snapshot.
 </Note>
 
 ## Payload
@@ -69,9 +69,8 @@ The default payload carries the **identity baseline** so you can route + sync th
 
 ## Companion events
 
-Right after a contact is created, you'll often see follow-up events for the same contactId within a few seconds:
+Right after a contact is created, you may see follow-up events for the same contactId within a few seconds:
 
-- `contact.updated` — if the creation flow set any optional fields
 - `contact.status_changed` — if the contact's initial group differs from the location default
 - `contact.sub_group_changed` — if the contact was assigned to a sub-group on creation
 

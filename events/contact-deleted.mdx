@@ -6,7 +6,7 @@ description: "A contact was removed or deactivated at a location."
 A `contact.deleted` event fires when a contact is removed from active use at a location. FPT uses **soft delete** — the record is flagged inactive rather than physically removed — so the contact's history and associated data remain intact for audit purposes.
 
 <Warning>
-**The contact still exists in FPT after this event.** The `IsActive` flag is set to false, and the contact is hidden from the active-contacts grid in the FPT admin. If your integration deletes the matching record on your end, you may want to instead mark it as inactive — it's possible for a contact to be reactivated later (in which case you'd see a `contact.updated` event).
+**The contact still exists in FPT after this event.** The `IsActive` flag is set to false, and the contact is hidden from the active-contacts grid in the FPT admin. If your integration deletes the matching record on your end, you may want to instead mark it as inactive — it's possible for a contact to be reactivated later (in which case you'd see a fresh `contact.created` event for the same `contactId`).
 </Warning>
 
 ## Payload
@@ -42,11 +42,7 @@ A `contact.deleted` event fires when a contact is removed from active use at a l
 ## What does NOT fire this
 
 - **Membership cancellation** alone doesn't delete the contact — the contact stays active with `contactGroupId` flipped to a non-member group. You'd see `contact.status_changed` for that, not `contact.deleted`.
-- **Hard deletes** from the database (very rare in FPT's data model) are not surfaced as `contact.deleted` events — they'd show up as the contact disappearing from subsequent `contact.updated` events.
-
-## Suppression of `contact.updated`
-
-When `contact.deleted` fires, we **suppress** the simultaneous `contact.updated` event for the same change. You get one clean deletion signal instead of an updated-then-deleted pair.
+- **Hard deletes** from the database (very rare in FPT's data model) are not surfaced as `contact.deleted` events.
 
 ## What you might do with this
 
@@ -59,7 +55,7 @@ When `contact.deleted` fires, we **suppress** the simultaneous `contact.updated`
 
 <AccordionGroup>
   <Accordion title="Are deleted contacts gone forever?">
-    No — they're flagged inactive but the row remains. Staff can reactivate from the admin, which fires `contact.updated`. Don't assume "deleted = gone."
+    No — they're flagged inactive but the row remains. Staff can reactivate from the admin, which fires a fresh `contact.created` event for the same `contactId`. Don't assume "deleted = gone."
   </Accordion>
 
   <Accordion title="Will I receive any more events for a deleted contact?">

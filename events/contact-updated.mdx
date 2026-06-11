@@ -1,87 +1,36 @@
 ---
 title: "contact.updated"
-description: "Any tracked field on an existing contact changed."
+description: "Not available for subscription in v1.1. See the focused events that replace it."
 ---
 
-A `contact.updated` event fires when **any** change-tracked field on an existing contact changes. This is the catch-all event for the contact lifecycle — fires for name changes, phone number updates, communication preferences, tag additions, activity timestamps (last SMS sent, last call received), and pretty much everything else.
+<Warning>
+**`contact.updated` is not available for subscription in v1.1.**
 
-<Note>
-**Rapid changes are coalesced.** If a contact is updated 5 times in 3 seconds, you typically get one `contact.updated` event reflecting the final state — not 5 separate events. Coalescing window is ~5–10 seconds.
-</Note>
+This event was originally designed as a generic "any field changed" signal, but in practice a single contact often produces 3-4 near-identical events in the same second (a staff member saving phone, then notes, then group). That floods partner tools like Mailchimp and Zapier and is the wrong abstraction for most integrations.
 
-## Payload
+v1.1 ships **four focused events** instead. v1.2 will add additional focused events to round out the contact lifecycle.
+</Warning>
 
-```json
-{
-  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
-  "eventType":     "contact.updated",
-  "eventTimestamp": "2026-06-10T23:45:00.123Z",
-  "locationId":    1234,
-  "organizationId": 5678,
-  "apiVersion":    "2026-05-29",
-  "data": {
-    "contactId":      9876,
-    "firstName":      "Jane",
-    "lastName":       "Doe",
-    "email":          "jane@example.com",
-    "phone":          "+15551234567",
-    "isActive":       true,
-    "contactGroupId": 3,
-    "subGroupId":     7,
-    "subGroupName":   "Gold Tier",
-    "operation":      "update"
-  }
-}
-```
+## Use these focused events instead
 
-### Fields in `data`
+Pick the specific signal your integration actually cares about:
 
-Same shape as [`contact.created`](/events/contact-created) — the dispatcher delivers a **snapshot** of the contact's current state at the moment the change was observed. Identity baseline always flows through; PII categories (address, demographics, health, financial) appear only when the subscription has opted into them.
-
-| Field | Type | Description |
-|---|---|---|
-| `contactId` | `number` | Unique contact ID at this location. |
-| `firstName`, `lastName`, `fullName` | `string` | Identity. |
-| `email`, `phone` | `string` | Primary contact channels. |
-| `contactGroupId`, `subGroupId`, `subGroupName` | `number` / `string` | Current lifecycle group + sub-group at the moment of the change. |
-| `isActive` | `boolean` | `true` for live contacts. `false` only via [`contact.deleted`](/events/contact-deleted), which is delivered as a separate event. |
-| `operation` | `string` | Always `"update"` for this event type. |
-| activity timestamps + consent flags | mixed | Same fields as `contact.created`. |
-
-<Note>
-**The payload is a snapshot, not a diff.** `contact.updated` tells you *that* the contact changed, not *which fields* changed. If you need before/after values for specific fields, subscribe to the typed events:
-
-- [`contact.status_changed`](/events/contact-status-changed) — when `contactGroupId` changed
-- [`contact.sub_group_changed`](/events/contact-sub-group-changed) — when `subGroupId` changed
-
-Both typed events carry `previousX` / `newX` fields. For all other field changes, dedupe against your local copy.
-</Note>
-
-## When else might this fire?
-
-Beyond direct field edits, `contact.updated` fires when:
-
-- A new tag is applied or removed
-- Communication preferences (canSms, canEmail, canCall) change
-- The contact's "last contacted" / "last SMS in" / "last call" activity timestamps tick forward
-- A staff member is assigned or unassigned
-
-In short: if it's tracked in the contact's record, a change to it ripples here.
-
-## Relationship to the typed events
-
-When something specific happens — like a status or sub-group flip — you'll receive BOTH `contact.updated` AND the typed event. They share the same `contactId` and arrive close in time.
-
-| You'll see this... | ...along with this |
+| Your use case | Subscribe to |
 |---|---|
-| `contact.status_changed` | `contact.updated` |
-| `contact.sub_group_changed` | `contact.updated` |
-| `contact.deleted` | (no `contact.updated` — we suppress it to give you one clean signal) |
+| "I want every new lead in my CRM" | [`contact.created`](/events/contact-created) |
+| "I want to know when a lead converts to a member" | [`contact.status_changed`](/events/contact-status-changed) |
+| "I want to know when someone is moved to a class group" | [`contact.sub_group_changed`](/events/contact-sub-group-changed) |
+| "I want to remove customers who cancel from my marketing list" | [`contact.deleted`](/events/contact-deleted) |
 
-This means if you subscribe to ONLY `contact.updated`, you get a notification for every change. If you also subscribe to the typed events, you can branch on the more specific signal when it fires and use `updated` for the catch-all case.
+## What's coming in v1.2
 
-## What you might do with this
+The events below are designed and on the schedule. They replace the catch-all `contact.updated` with discrete, partner-friendly signals — subscribe by the specific change you want to react to, not by every database write.
 
-- **Cache invalidation** — flush your locally-cached copy of the contact and re-fetch on next demand
-- **Sync** — pull the contact's current state from your source-of-truth and reconcile
-- **Activity feed** — note that the contact was touched, for later aggregation
+| Event | Fires when |
+|---|---|
+| `contact.identity_updated` | First name, last name, email, or phone is changed |
+| `contact.address_updated` | City, state, postal code, or country is changed |
+| `contact.note_added` | A note is added to the contact |
+| `contact.tag_added` / `contact.tag_removed` | A tag is added to or removed from the contact |
+
+If you have a v1.2 use case that none of these cover, [tell us](mailto:webhooks@fitprotracker.com) — we'd rather hear about it now while the design is still flexible.

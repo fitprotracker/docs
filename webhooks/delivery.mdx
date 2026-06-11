@@ -28,7 +28,7 @@ We do **not** offer exactly-once. That's a deliberate trade-off: building exactl
 Every event carries a unique `eventId` in the envelope:
 
 ```json
-{ "eventId": "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e", "eventType": "contact.updated", ... }
+{ "eventId": "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e", "eventType": "contact.status_changed", ... }
 ```
 
 When your endpoint receives an event:

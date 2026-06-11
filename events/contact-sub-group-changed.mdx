@@ -38,7 +38,7 @@ Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **locatio
 
 ### Fields in `data`
 
-The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a sub-group change without subscribing to `contact.updated` or maintaining your own `contactId → identity` lookup.
+The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a sub-group change without maintaining your own `contactId → identity` lookup — the contact's name, email, and phone are right there in the payload.
 
 | Field | Type | Description |
 |---|---|---|
@@ -76,10 +76,6 @@ If your integration is across multiple locations, remember sub-group IDs are sco
 - Staff manually moves a contact between sub-groups in the FPT admin
 - A bulk-update workflow flips many contacts at once (you'll see one event per affected contact, possibly coalesced if the same contact changed multiple times)
 - An automation rule applies a sub-group based on contact attributes (e.g., "When a contact's membership type is Gold, set sub-group to 'gold-tier'")
-
-## Companion `contact.updated`
-
-Same pattern as the other typed events — `contact.sub_group_changed` fires alongside `contact.updated` for the same `contactId`. Dedupe in your handler if you only care about one signal.
 
 ## Common gotcha
 

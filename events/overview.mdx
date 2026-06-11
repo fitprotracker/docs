@@ -13,17 +13,11 @@ For the outer envelope shape (`eventId`, `eventType`, `eventTimestamp`, etc.) se
 
 ## Available today (v1.1)
 
-The `contact.*` family — five events covering the contact lifecycle.
+The `contact.*` family — four **focused** events covering the contact lifecycle. Each one represents a distinct business signal so you can subscribe only to what your integration needs.
 
 <CardGroup cols={2}>
   <Card title="contact.created" icon="user-plus" href="/events/contact-created">
     A new contact was added at a location.
-  </Card>
-  <Card title="contact.updated" icon="user-pen" href="/events/contact-updated">
-    Any tracked field on an existing contact changed.
-  </Card>
-  <Card title="contact.deleted" icon="user-minus" href="/events/contact-deleted">
-    A contact was removed or deactivated.
   </Card>
   <Card title="contact.status_changed" icon="arrows-up-down" href="/events/contact-status-changed">
     Contact moved between lifecycle groups (Lead → Member → etc.).
@@ -31,13 +25,27 @@ The `contact.*` family — five events covering the contact lifecycle.
   <Card title="contact.sub_group_changed" icon="arrows-left-right" href="/events/contact-sub-group-changed">
     Contact assigned to a different business sub-group.
   </Card>
+  <Card title="contact.deleted" icon="user-minus" href="/events/contact-deleted">
+    A contact was removed or deactivated.
+  </Card>
 </CardGroup>
+
+<Note>
+**Why no generic `contact.updated`?** Fit Pro Tracker intentionally does not expose a catch-all "any field changed" event in v1.1. A staff member editing a contact often saves multiple times in quick succession (phone, then notes, then group), and a generic update event would flood your handler with 3-4 near-duplicate events per second. Instead, v1.1 ships **focused** events that match specific business signals. v1.2 will introduce additional focused events for identity changes (`contact.identity_updated`), address changes, and activity logging so partners can subscribe by intent rather than by every database write.
+</Note>
 
 ## On the roadmap
 
 These event families are designed and on the schedule but **not yet emitted**. You can pre-plan your integration around them, but subscribing today won't deliver anything.
 
 <AccordionGroup>
+  <Accordion title="contact.* (additional focused events) — v1.2">
+    `contact.identity_updated` (firstName / lastName / email / phone changed),
+    `contact.address_updated` (city / state / postal / country changed),
+    `contact.note_added`, `contact.tag_added`, `contact.tag_removed`. Replace the
+    catch-all "contact.updated" pattern with discrete, partner-friendly signals.
+  </Accordion>
+
   <Accordion title="membership.* — v1.2">
     `membership.started`, `membership.renewed`, `membership.cancelled`, `membership.frozen`, `membership.expired` — emitted from the FPT billing lifecycle.
   </Accordion>

@@ -3,7 +3,7 @@ title: "Quickstart"
 description: "Receive your first Fit Pro Tracker webhook in about 10 minutes."
 ---
 
-This guide walks through subscribing to your first webhook event, receiving a test payload, and verifying the signature. By the end you'll have a working endpoint that confirms `contact.updated` events end-to-end.
+This guide walks through subscribing to your first webhook event, firing a test payload from the FPT admin, and verifying the signature. By the end you'll have a working endpoint that confirms `contact.status_changed` events end-to-end.
 
 <Note>
 You need a Fit Pro Tracker account with **organization admin** access (or location admin if you're scoping to a single location). If you don't have that yet, contact your account owner.
@@ -31,24 +31,36 @@ For initial testing we recommend [webhook.site](https://webhook.site) — it giv
   <Step title="Click Add Endpoint">
     A dialog appears with three fields:
     - **URL** — paste your webhook.site URL
-    - **Events** — check `contact.updated`
+    - **Events** — check the events you want. For this quickstart, pick `contact.status_changed` (fires when a Lead converts to a Member, etc.). You can check all four — the others (`contact.created`, `contact.sub_group_changed`, `contact.deleted`) follow the same shape.
     - **PII categories** — leave at default for the quickstart
   </Step>
   <Step title="Save">
-    The endpoint is now active. FPT will start delivering matching events within seconds of the next contact change at your location.
+    The endpoint is now active. FPT will start delivering matching events within seconds of the next status change at your location.
   </Step>
   <Step title="Grab your signing secret">
-    Click the **Generate Key** button on your new endpoint row. The dialog shows a one-time secret — save it now (you'll need it for signature verification later). You won't be able to view it again; you can rotate it if lost.
+    The signing secret was returned in the Save response. Save it now — you'll need it for signature verification later. You won't be able to view it again; you can rotate it if lost.
   </Step>
 </Steps>
 
 ## 3. Trigger an event
 
-The fastest way to fire a real event right now: edit any contact in FPT and save. Any field change emits `contact.updated`. Within 5–10 seconds you should see a POST land on webhook.site.
+The fastest way to fire a real event right now: click the **paper-plane (Send test event)** icon on your new endpoint's row in the FPT admin. A dialog opens with radio buttons for each event type your subscription is subscribed to, plus a **live payload preview** showing exactly what will be POSTed.
 
-<Tip>
-A **"Send test event"** button is coming in a future release — it'll let you fire a synthetic event without modifying real data. For now, editing a real contact is the way.
-</Tip>
+<Steps>
+  <Step title="Pick an event type">
+    Select `contact.status_changed` to see the typed-event shape (the most informative).
+  </Step>
+  <Step title="Click Send test event">
+    FPT signs and POSTs a synthetic payload to your webhook.site URL using your real signing secret. Within ~1 second you'll see the request land on webhook.site.
+  </Step>
+</Steps>
+
+Test events are clearly marked so your handler can filter them:
+- `X-FPT-Test-Event: true` header
+- `_test: true` flag inside `data`
+- `contactId: -1` (synthetic, never collides with a real contact)
+
+You can also trigger a **real** event by moving any test contact between lifecycle groups (Lead → Member) in the FPT admin. That fires `contact.status_changed` against the same endpoint.
 
 ## 4. Inspect what you got
 
@@ -57,25 +69,41 @@ On webhook.site you'll see a request with these key bits:
 ```http
 POST / HTTP/1.1
 Content-Type: application/json
+User-Agent: FitProTracker-Webhook/1.0 (test)
+X-FPT-Event-Id: 9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e
+X-FPT-Test-Event: true
 X-FPT-Signature: t=1717023600,v1=a3f...
 ```
 
 ```json
 {
-  "eventId": "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
-  "eventType": "contact.updated",
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":      "contact.status_changed",
   "eventTimestamp": "2026-06-10T23:45:00Z",
-  "locationId": 1234,
+  "locationId":     1234,
   "organizationId": 5678,
-  "apiVersion": "2026-05-29",
+  "apiVersion":     "2026-05-29",
   "data": {
-    "contactId": 9876,
-    "operation": "update"
+    "contactId":          9876,
+    "firstName":          "Test",
+    "lastName":           "Webhook",
+    "fullName":           "Test Webhook",
+    "email":              "test@webhook.fitprotracker.com",
+    "phone":              "+15555550100",
+    "isActive":           true,
+    "contactGroupId":     3,
+    "subGroupId":         null,
+    "subGroupName":       null,
+    "previousStatusId":   1,
+    "newStatusId":        3,
+    "previousStatusName": "Leads",
+    "newStatusName":      "Members",
+    "_test":              true
   }
 }
 ```
 
-That's the full envelope. The shape is consistent across every event type — only the `eventType` and `data` fields vary by event.
+That's the full envelope. The shape is consistent across every event type — only the `eventType` and `data` fields vary by event. Identity fields (firstName, lastName, email, phone, etc.) are included in every typed event so you can act on a single payload without round-tripping for state.
 
 ## 5. Verify the signature
 
