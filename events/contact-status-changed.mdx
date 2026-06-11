@@ -28,9 +28,11 @@ When a contact transitions between these — like a lead converting to a member,
   "organizationId": 5678,
   "apiVersion":    "v1",
   "data": {
-    "contactId":        9876,
-    "previousStatusId": 1,
-    "newStatusId":      3
+    "contactId":          9876,
+    "previousStatusId":   1,
+    "newStatusId":        3,
+    "previousStatusName": "Leads",
+    "newStatusName":      "Members"
   }
 }
 ```
@@ -42,6 +44,8 @@ When a contact transitions between these — like a lead converting to a member,
 | `contactId` | `number` | The contact whose status changed. |
 | `previousStatusId` | `number` | The Contact Group ID the contact was in BEFORE the change. |
 | `newStatusId` | `number` | The Contact Group ID the contact is in AFTER the change. |
+| `previousStatusName` | `string` | Human-readable label for `previousStatusId` (e.g., `"Leads"`, `"Past Members"`). Use this to route without your own ID→label table. |
+| `newStatusName` | `string` | Human-readable label for `newStatusId`. |
 
 <Note>
 **Why "status" instead of "contact group"?** Externally, "status" is the more universal term for a lifecycle stage. Internally FPT calls it Contact Group. The event name uses the partner-facing label; the table above documents the mapping.

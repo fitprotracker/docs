@@ -18,9 +18,11 @@ Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **locatio
   "organizationId": 5678,
   "apiVersion":    "v1",
   "data": {
-    "contactId":          9876,
-    "previousSubGroupId": 3,
-    "newSubGroupId":      7
+    "contactId":            9876,
+    "previousSubGroupId":   3,
+    "newSubGroupId":        7,
+    "previousSubGroupName": "Bronze Tier",
+    "newSubGroupName":      "Gold Tier"
   }
 }
 ```
@@ -32,6 +34,8 @@ Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **locatio
 | `contactId` | `number` | The contact whose sub-group changed. |
 | `previousSubGroupId` | `number` or `null` | The sub-group ID BEFORE the change. `null` if the contact had no sub-group previously. |
 | `newSubGroupId` | `number` or `null` | The sub-group ID AFTER the change. `null` if the contact was unassigned from any sub-group. |
+| `previousSubGroupName` | `string` or `null` | Human-readable label for `previousSubGroupId`. `null` when the ID is null. **Recommended**: route by name across locations — sub-group IDs are location-scoped. |
+| `newSubGroupName` | `string` or `null` | Human-readable label for `newSubGroupId`. `null` when the ID is null. |
 
 <Note>
 **Either side can be null.** Three valid combinations:
