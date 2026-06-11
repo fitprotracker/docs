@@ -30,8 +30,7 @@ Test events are intentionally distinguishable from production traffic, so your h
 
 | Marker | Where | Value |
 |---|---|---|
-| `eventId` prefix | envelope | `test_` followed by 32 hex chars (e.g. `test_a3f8c2e7d1...`) |
-| `_test: true` flag | inside `data` | Boolean. Present only on synthetic events. |
+| `_test: true` flag | inside `data` | Boolean. Present only on synthetic events. The simplest way to filter or dedupe test traffic in your handler. |
 | `X-FPT-Test-Event` | header | `true` |
 | `User-Agent` | header | suffix ` (test)` (full: `FitProTracker-Webhook/1.0 (test)`) |
 | `contactId` | inside `data` | `-1` (synthetic, never collides with a real contact) |
