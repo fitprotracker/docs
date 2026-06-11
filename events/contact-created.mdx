@@ -24,18 +24,48 @@ We only fire `contact.created` for genuinely new contacts going forward. Contact
   "organizationId": 5678,
   "apiVersion":    "v1",
   "data": {
-    "contactId": 9876,
-    "operation": "create"
+    "contactId":      9876,
+    "firstName":      "Jane",
+    "lastName":       "Doe",
+    "fullName":       "Jane Doe",
+    "email":          "jane@example.com",
+    "phone":          "+15551234567",
+    "isActive":       true,
+    "contactGroupId": 1,
+    "subGroupId":     null,
+    "subGroupName":   null,
+    "inquiryDate":    "2026-06-10T23:45:00.123Z",
+    "operation":      "create"
   }
 }
 ```
 
 ### Fields in `data`
 
+The default payload carries the **identity baseline** so you can route + sync the contact without a separate API lookup. Additional PII categories (address, demographics, health, financial) flow through only if the subscription has opted into them — see [PII categories](/webhooks/subscriptions#pii-categories).
+
 | Field | Type | Description |
 |---|---|---|
-| `contactId` | `number` | The new contact's unique ID at this location. Use this to fetch full details from your own database (after backfill) or future FPT API. |
-| `operation` | `string` | Always `"create"` for this event type. Reserved field — useful if you handle multiple event types through a single endpoint and want a quick categorical switch. |
+| `contactId` | `number` | Unique contact ID at this location. Pair with `locationId` from the envelope for cross-location dedupe. |
+| `firstName` | `string` | First name. |
+| `lastName` | `string` | Last name. |
+| `fullName` | `string` | Concatenated display name. |
+| `email` | `string` | Primary email. |
+| `phone` | `string` | Primary phone in E.164 format. |
+| `isActive` | `boolean` | `true` for newly created contacts. Flips to `false` on soft-delete. |
+| `contactGroupId` | `number` | Lifecycle group (1=Leads, 2=Prospects, 3=Members, 4=Past Members, 5=Non-members, 6=Other, 7=Staff). See [`contact.status_changed`](/events/contact-status-changed) for transitions. |
+| `subGroupId` | `number` or `null` | Business sub-group ID (location-scoped). `null` if no sub-group assigned. |
+| `subGroupName` | `string` or `null` | Human-readable sub-group label. |
+| `inquiryDate` | `ISO 8601 timestamp` | When this contact first inquired. |
+| `operation` | `string` | Always `"create"` for this event type. Useful for branching when one endpoint handles multiple event types. |
+| `tagIds` | `number[]` | Tag IDs assigned to this contact, if any. |
+| `assignedUserId` | `number` or `null` | Staff member assigned to this contact. |
+| activity timestamps | `ISO 8601 timestamp` or `null` | `lastContactedDate`, `lastSmsOutDate`, `lastEmailOutDate`, `lastCallDate`, `lastActivityAt`, etc. |
+| consent flags | `boolean` | `canEmail`, `canText`, `canCall`, `isBlockEmail`, `isBlockSms` — respect these before reaching out. |
+
+<Note>
+**Opt-in fields** — `city`, `state`, `postalCode`, `countryCode` (address), `birthdate`, `gender`, `company` (demographics), and membership/billing aggregates only appear when the subscription has the matching PII category checked in the FPT admin.
+</Note>
 
 ## Companion events
 

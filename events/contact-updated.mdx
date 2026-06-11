@@ -20,23 +20,41 @@ A `contact.updated` event fires when **any** change-tracked field on an existing
   "organizationId": 5678,
   "apiVersion":    "v1",
   "data": {
-    "contactId": 9876,
-    "operation": "update"
+    "contactId":      9876,
+    "firstName":      "Jane",
+    "lastName":       "Doe",
+    "email":          "jane@example.com",
+    "phone":          "+15551234567",
+    "isActive":       true,
+    "contactGroupId": 3,
+    "subGroupId":     7,
+    "subGroupName":   "Gold Tier",
+    "operation":      "update"
   }
 }
 ```
 
 ### Fields in `data`
 
+Same shape as [`contact.created`](/events/contact-created) — the dispatcher delivers a **snapshot** of the contact's current state at the moment the change was observed. Identity baseline always flows through; PII categories (address, demographics, health, financial) appear only when the subscription has opted into them.
+
 | Field | Type | Description |
 |---|---|---|
-| `contactId` | `number` | The contact whose data changed. |
+| `contactId` | `number` | Unique contact ID at this location. |
+| `firstName`, `lastName`, `fullName` | `string` | Identity. |
+| `email`, `phone` | `string` | Primary contact channels. |
+| `contactGroupId`, `subGroupId`, `subGroupName` | `number` / `string` | Current lifecycle group + sub-group at the moment of the change. |
+| `isActive` | `boolean` | `true` for live contacts. `false` only via [`contact.deleted`](/events/contact-deleted), which is delivered as a separate event. |
 | `operation` | `string` | Always `"update"` for this event type. |
+| activity timestamps + consent flags | mixed | Same fields as `contact.created`. |
 
 <Note>
-**The payload doesn't include the changed fields.** This is intentional — `contact.updated` is a "something changed, look up the current state" signal, not a diff. If you need to know specifically *what* changed, watch the typed sub-events (`contact.status_changed`, `contact.sub_group_changed`) which include before/after values.
+**The payload is a snapshot, not a diff.** `contact.updated` tells you *that* the contact changed, not *which fields* changed. If you need before/after values for specific fields, subscribe to the typed events:
 
-If you need the full current state of the contact, look it up from your own copy or (eventually) the FPT public API.
+- [`contact.status_changed`](/events/contact-status-changed) — when `contactGroupId` changed
+- [`contact.sub_group_changed`](/events/contact-sub-group-changed) — when `subGroupId` changed
+
+Both typed events carry `previousX` / `newX` fields. For all other field changes, dedupe against your local copy.
 </Note>
 
 ## When else might this fire?
