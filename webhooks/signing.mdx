@@ -1,0 +1,263 @@
+---
+title: "Signature verification"
+description: "Verify that webhook requests genuinely come from FitProTracker using HMAC-SHA256."
+---
+
+Every webhook FitProTracker delivers carries a cryptographic signature in the `X-FPT-Signature` header. Verifying this signature on every request proves the payload genuinely came from us and hasn't been tampered with in transit.
+
+<Warning>
+**Verify the signature on every request, before any processing.** Don't trust the body, don't read the `eventType`, don't even log the payload until verification passes. An unsigned or invalid request should return `401 Unauthorized` immediately.
+</Warning>
+
+## The signature header
+
+```http
+X-FPT-Signature: t=1717023600,v1=a3f8c2e7d1b5...
+```
+
+Two fields, comma-separated:
+
+| Key | Meaning |
+|---|---|
+| `t` | Unix timestamp (seconds since epoch) when we computed the signature. Use this to reject replay attempts older than your tolerance window (we suggest 5 minutes). |
+| `v1` | Hex-encoded HMAC-SHA256 of `"{t}.{rawBody}"` using your subscription's signing secret. |
+
+## The signing scheme
+
+```
+signature = HMAC_SHA256(
+    secret = <your subscription's signing secret>,
+    message = "{t}.{rawBody}"
+)
+```
+
+Where:
+- `{t}` is the same timestamp value from the header
+- `{rawBody}` is the exact request body, byte-for-byte — **don't re-serialize the JSON** (whitespace changes break the signature)
+- `secret` is the 32+ character secret revealed once when you click **Generate Key** on your subscription
+
+## Verification recipe (language-agnostic)
+
+<Steps>
+  <Step title="Parse the X-FPT-Signature header">
+    Split on `,`. Pull out `t` and `v1`. Reject if either is missing.
+  </Step>
+  <Step title="Reject ancient timestamps">
+    Check `now - t > 300` (5 minutes). Reject as 401 — defends against replay attacks if a signature ever leaks.
+  </Step>
+  <Step title="Read the raw body, exactly as received">
+    Don't parse, don't pretty-print, don't strip whitespace. Capture the bytes.
+  </Step>
+  <Step title="Compute the expected signature">
+    `expected = HMAC_SHA256(secret, "{t}.{rawBody}")`. Hex-encode it.
+  </Step>
+  <Step title="Constant-time compare">
+    Use a constant-time comparison function (`hmac.compare_digest` in Python, `crypto.timingSafeEqual` in Node, `CryptographicOperations.FixedTimeEquals` in .NET). **Never use `==` on the strings** — it leaks the secret via timing side channels.
+  </Step>
+  <Step title="Reject mismatches with 401">
+    Don't expose details about *why* it failed — that helps attackers.
+  </Step>
+</Steps>
+
+## Code samples
+
+<CodeGroup>
+```javascript Node.js
+import crypto from "node:crypto";
+
+const TOLERANCE_SECONDS = 300; // 5 minutes
+
+export function verifySignature(headerValue, rawBody, secret) {
+    if (!headerValue) return false;
+
+    // Parse header: "t=1717023600,v1=a3f..."
+    const parts = Object.fromEntries(
+        headerValue.split(",").map(p => p.split("=").map(s => s.trim()))
+    );
+    if (!parts.t || !parts.v1) return false;
+
+    // Reject ancient timestamps
+    const ts = parseInt(parts.t, 10);
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - ts) > TOLERANCE_SECONDS) return false;
+
+    // Compute expected
+    const expected = crypto
+        .createHmac("sha256", secret)
+        .update(`${ts}.${rawBody}`)
+        .digest("hex");
+
+    // Constant-time compare
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(expected, "hex"),
+            Buffer.from(parts.v1, "hex")
+        );
+    } catch {
+        return false; // wrong length, etc.
+    }
+}
+
+// --- Express usage ---
+// IMPORTANT: capture the raw body BEFORE express.json() parses it.
+import express from "express";
+const app = express();
+
+app.post(
+    "/webhooks/fpt",
+    express.raw({ type: "application/json" }),
+    (req, res) => {
+        const rawBody = req.body.toString("utf8");
+        if (!verifySignature(req.headers["x-fpt-signature"], rawBody, process.env.FPT_WEBHOOK_SECRET)) {
+            return res.status(401).end();
+        }
+        const event = JSON.parse(rawBody);
+        // ... dedupe by event.eventId, process, return 200
+        res.status(200).end();
+    }
+);
+```
+
+```python Python
+import hmac
+import hashlib
+import time
+from flask import Flask, request, abort
+
+TOLERANCE_SECONDS = 300  # 5 minutes
+SECRET = os.environ["FPT_WEBHOOK_SECRET"].encode()
+
+def verify_signature(header_value: str, raw_body: bytes) -> bool:
+    if not header_value:
+        return False
+
+    # Parse header: "t=1717023600,v1=a3f..."
+    parts = dict(p.strip().split("=", 1) for p in header_value.split(","))
+    if "t" not in parts or "v1" not in parts:
+        return False
+
+    # Reject ancient timestamps
+    try:
+        ts = int(parts["t"])
+    except ValueError:
+        return False
+    if abs(time.time() - ts) > TOLERANCE_SECONDS:
+        return False
+
+    # Compute expected
+    message = f"{ts}.".encode() + raw_body
+    expected = hmac.new(SECRET, message, hashlib.sha256).hexdigest()
+
+    # Constant-time compare
+    return hmac.compare_digest(expected, parts["v1"])
+
+
+# --- Flask usage ---
+app = Flask(__name__)
+
+@app.post("/webhooks/fpt")
+def receive_webhook():
+    raw_body = request.get_data()  # raw bytes BEFORE Flask parses JSON
+    if not verify_signature(request.headers.get("X-FPT-Signature"), raw_body):
+        abort(401)
+    event = request.get_json()
+    # ... dedupe by event["eventId"], process, return 200
+    return "", 200
+```
+
+```csharp C# (.NET 8+)
+using System.Security.Cryptography;
+using System.Text;
+
+public static class FptWebhookVerifier
+{
+    private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
+
+    public static bool Verify(string? headerValue, byte[] rawBody, string secret)
+    {
+        if (string.IsNullOrEmpty(headerValue)) return false;
+
+        // Parse header: "t=1717023600,v1=a3f..."
+        var parts = headerValue.Split(',')
+            .Select(p => p.Trim().Split('=', 2))
+            .Where(kv => kv.Length == 2)
+            .ToDictionary(kv => kv[0], kv => kv[1]);
+
+        if (!parts.TryGetValue("t", out var tRaw) ||
+            !parts.TryGetValue("v1", out var signatureHex)) return false;
+
+        // Reject ancient timestamps
+        if (!long.TryParse(tRaw, out var ts)) return false;
+        var skew = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(ts);
+        if (Math.Abs(skew.TotalSeconds) > Tolerance.TotalSeconds) return false;
+
+        // Compute expected
+        var prefix = Encoding.UTF8.GetBytes($"{ts}.");
+        var toSign = new byte[prefix.Length + rawBody.Length];
+        Buffer.BlockCopy(prefix, 0, toSign, 0, prefix.Length);
+        Buffer.BlockCopy(rawBody, 0, toSign, prefix.Length, rawBody.Length);
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var expectedBytes = hmac.ComputeHash(toSign);
+
+        // Parse the hex signature and constant-time compare
+        var receivedBytes = Convert.FromHexString(signatureHex);
+        if (receivedBytes.Length != expectedBytes.Length) return false;
+        return CryptographicOperations.FixedTimeEquals(expectedBytes, receivedBytes);
+    }
+}
+
+// --- ASP.NET Core minimal API usage ---
+// IMPORTANT: capture the raw body BEFORE model binding.
+app.MapPost("/webhooks/fpt", async (HttpContext ctx, IConfiguration cfg) =>
+{
+    using var ms = new MemoryStream();
+    await ctx.Request.Body.CopyToAsync(ms);
+    var rawBody = ms.ToArray();
+
+    var header = ctx.Request.Headers["X-FPT-Signature"].ToString();
+    var secret = cfg["FPT_WEBHOOK_SECRET"]!;
+    if (!FptWebhookVerifier.Verify(header, rawBody, secret))
+        return Results.Unauthorized();
+
+    var json = Encoding.UTF8.GetString(rawBody);
+    // ... deserialize, dedupe by EventId, process, return 200
+    return Results.Ok();
+});
+```
+</CodeGroup>
+
+## Key rotation
+
+Click **Rotate Key** on your subscription's row in Settings → Webhook Endpoints to issue a new secret. The dialog reveals the new secret once — save it.
+
+<Note>
+**Grace period after rotation:** for 24 hours after rotation, FPT signs deliveries with the NEW secret only — the old one is invalidated immediately. Plan rotations carefully:
+
+1. Get the new secret in the FPT admin
+2. Deploy the new secret to your endpoint config
+3. Verify a test event lands successfully
+4. Done — the rotation is complete
+
+If you accidentally break a key (lose it, leak it), rotate immediately. Events delivered between the leak and the rotation should be considered untrusted.
+</Note>
+
+## Common verification mistakes
+
+<AccordionGroup>
+  <Accordion title="Re-parsing the JSON before signing">
+    Your framework probably parses the body into a `req.body` object before your handler runs. **Capture the raw bytes** before that happens. If you sign `JSON.stringify(req.body)`, the whitespace or field ordering will differ from what we signed and you'll always fail verification.
+  </Accordion>
+
+  <Accordion title="Using == or string equality">
+    String comparison short-circuits on the first differing character — that timing leak lets an attacker brute-force the signature one character at a time. Always use the constant-time comparison helper your platform provides.
+  </Accordion>
+
+  <Accordion title="Forgetting to reject old timestamps">
+    Without a timestamp tolerance check, a leaked signature is valid forever. The `t=` field in the header exists specifically so you can reject replays older than ~5 minutes.
+  </Accordion>
+
+  <Accordion title="Treating the secret as a password (storing in clear text, logging it)">
+    Treat it like any other API credential. Store in your secrets manager, never log it, rotate periodically.
+  </Accordion>
+</AccordionGroup>

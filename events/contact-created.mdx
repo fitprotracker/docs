@@ -1,0 +1,55 @@
+---
+title: "contact.created"
+description: "A new contact was added at a location."
+---
+
+A `contact.created` event fires when a brand-new contact record appears in FPT for the first time. This happens when:
+
+- A staff member manually adds a contact in the FPT admin
+- A lead-source integration (Meta/Facebook ads, ClubReady, MindBody import, etc.) creates a contact
+- A self-service signup form (kiosk, public web form) submits
+
+<Note>
+We only fire `contact.created` for genuinely new contacts going forward. Contacts that existed before this event type was rolled out won't retroactively fire `created` — they'll just appear in `contact.updated` events when next touched.
+</Note>
+
+## Payload
+
+```json
+{
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":     "contact.created",
+  "eventTimestamp": "2026-06-10T23:45:00.123Z",
+  "locationId":    1234,
+  "organizationId": 5678,
+  "apiVersion":    "v1",
+  "data": {
+    "contactId": 9876,
+    "operation": "create"
+  }
+}
+```
+
+### Fields in `data`
+
+| Field | Type | Description |
+|---|---|---|
+| `contactId` | `number` | The new contact's unique ID at this location. Use this to fetch full details from your own database (after backfill) or future FPT API. |
+| `operation` | `string` | Always `"create"` for this event type. Reserved field — useful if you handle multiple event types through a single endpoint and want a quick categorical switch. |
+
+## Companion events
+
+Right after a contact is created, you'll often see follow-up events for the same contactId within a few seconds:
+
+- `contact.updated` — if the creation flow set any optional fields
+- `contact.status_changed` — if the contact's initial group differs from the location default
+- `contact.sub_group_changed` — if the contact was assigned to a sub-group on creation
+
+These all carry the same `contactId`, so dedupe in your handler if you only care about "new contact appeared."
+
+## What you might do with this
+
+- **Sync to your CRM** — create a matching record in your system the moment a contact appears in FPT
+- **Welcome workflow** — trigger an onboarding email or SMS via your marketing platform
+- **Analytics** — count new leads / new members per location per day
+- **Lead routing** — assign the contact to a sales rep in your queueing system

@@ -1,0 +1,80 @@
+---
+title: "contact.sub_group_changed"
+description: "A contact was assigned to a different business sub-group."
+---
+
+A `contact.sub_group_changed` event fires when a contact's **sub-group** changes. Sub-groups in FPT are user-defined, location-scoped buckets — separate from the system-wide Contact Group lifecycle enum. Locations typically use sub-groups for things like membership tier (Bronze / Silver / Gold), team assignment (Trainer A's clients vs. Trainer B's clients), or program (HIIT cohort, yoga class series, etc.).
+
+Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **location-defined** — your subscription will only see IDs that are meaningful within the events you receive.
+
+## Payload
+
+```json
+{
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":     "contact.sub_group_changed",
+  "eventTimestamp": "2026-06-10T23:45:00.123Z",
+  "locationId":    1234,
+  "organizationId": 5678,
+  "apiVersion":    "v1",
+  "data": {
+    "contactId":          9876,
+    "previousSubGroupId": 3,
+    "newSubGroupId":      7
+  }
+}
+```
+
+### Fields in `data`
+
+| Field | Type | Description |
+|---|---|---|
+| `contactId` | `number` | The contact whose sub-group changed. |
+| `previousSubGroupId` | `number` or `null` | The sub-group ID BEFORE the change. `null` if the contact had no sub-group previously. |
+| `newSubGroupId` | `number` or `null` | The sub-group ID AFTER the change. `null` if the contact was unassigned from any sub-group. |
+
+<Note>
+**Either side can be null.** Three valid combinations:
+
+- `previousSubGroupId: null, newSubGroupId: 7` — first-time assignment
+- `previousSubGroupId: 7, newSubGroupId: null` — unassignment
+- `previousSubGroupId: 7, newSubGroupId: 12` — moved between sub-groups
+</Note>
+
+## Looking up sub-group names
+
+The event sends sub-group IDs, not names. To resolve a sub-group ID to its human-readable name:
+
+- **Short term** — maintain a local lookup table by manually mirroring the sub-groups defined in your FPT admin
+- **Soon** — when the FPT public REST API ships, you'll be able to query `/api/locations/{locationId}/sub-groups` to enumerate
+
+If your integration is across multiple locations, remember sub-group IDs are scoped per-location — the same `subGroupId: 7` may mean different things at different locations.
+
+## What triggers it
+
+- Staff manually moves a contact between sub-groups in the FPT admin
+- A bulk-update workflow flips many contacts at once (you'll see one event per affected contact, possibly coalesced if the same contact changed multiple times)
+- An automation rule applies a sub-group based on contact attributes (e.g., "When a contact's membership type is Gold, set sub-group to 'gold-tier'")
+
+## Companion `contact.updated`
+
+Same pattern as the other typed events — `contact.sub_group_changed` fires alongside `contact.updated` for the same `contactId`. Dedupe in your handler if you only care about one signal.
+
+## Common gotcha
+
+<AccordionGroup>
+  <Accordion title="Multi-step transitions coalesced into one event">
+    If a contact moves Sub-group A → B → C in rapid succession, you may receive a single event with `previousSubGroupId: A, newSubGroupId: C` — skipping B entirely. The intermediate hop isn't surfaced as a separate event. If your business logic depends on tracking every transition (rare), you'll need to use FPT's history API rather than this event stream.
+  </Accordion>
+
+  <Accordion title="Sub-group renamed but ID unchanged">
+    If a location admin renames a sub-group from "Trial" to "Intro Pack" without changing its ID, you'll see no event. The event fires only on assignment changes — name/label changes are pure metadata edits.
+  </Accordion>
+</AccordionGroup>
+
+## What you might do with this
+
+- **Sync to your CRM's segmentation** — when a contact's sub-group changes, update their list / segment membership in your marketing platform
+- **Trigger workflows** — "When a contact moves to the 'cancellation-risk' sub-group, send a retention offer"
+- **Reporting** — track sub-group distribution and flow rates across cohorts
+- **Coach handoff** — sub-groups often map to assigned coaches; this event drives "your roster just gained / lost a client" notifications

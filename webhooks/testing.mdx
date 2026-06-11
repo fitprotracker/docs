@@ -1,0 +1,183 @@
+---
+title: "Testing your endpoint"
+description: "Recipes for end-to-end testing without bothering real data."
+---
+
+A few well-trodden patterns for testing a webhook handler before pointing it at production traffic.
+
+## Recipe 1: webhook.site (zero-code receiver)
+
+The fastest possible test. Use webhook.site to capture raw POSTs and inspect them without writing any code.
+
+<Steps>
+  <Step title="Open webhook.site">
+    Open [webhook.site](https://webhook.site) — you'll get a unique URL like `https://webhook.site/8a3f-7c2e-...`
+  </Step>
+  <Step title="Subscribe in FPT">
+    Settings → Webhook Endpoints → Add Endpoint. Paste your webhook.site URL. Check `contact.updated`. Save.
+  </Step>
+  <Step title="Trigger an event">
+    Edit any test contact and save. Within ~10 seconds, the request appears on webhook.site with full headers (including `X-FPT-Signature`) and body.
+  </Step>
+  <Step title="Inspect">
+    Use webhook.site's UI to expand headers, view the JSON body, and replay the request to a different URL if you want to forward to your local dev server.
+  </Step>
+</Steps>
+
+<Note>
+webhook.site is great for inspection but **don't leave production subscriptions pointed at it** — payloads contain customer data, and webhook.site is a public service.
+</Note>
+
+## Recipe 2: ngrok + your local server
+
+For active development on your real handler, expose your localhost to the internet via [ngrok](https://ngrok.com/):
+
+<Steps>
+  <Step title="Install ngrok and start a tunnel to your local server">
+    ```bash
+    ngrok http 3000
+    ```
+    ngrok prints a public HTTPS URL like `https://abc123.ngrok-free.app`.
+  </Step>
+  <Step title="Subscribe in FPT to the ngrok URL">
+    Settings → Webhook Endpoints → URL: `https://abc123.ngrok-free.app/webhooks/fpt`
+  </Step>
+  <Step title="Iterate">
+    Hit save in your code, restart your server, trigger an event in FPT. Watch the request hit your local handler in real time. Set breakpoints, log payloads, refactor.
+  </Step>
+</Steps>
+
+<Tip>
+ngrok URLs change on every restart in the free tier. Update the subscription URL in FPT each time, or get an ngrok paid plan with a reserved domain.
+</Tip>
+
+## Recipe 3: Capture-and-replay
+
+Once you have a few real events captured (from webhook.site or your own logs), you can replay them locally without touching FPT at all. This is the fastest dev loop for handler logic — no waiting on events to fire.
+
+<CodeGroup>
+```bash curl
+# Replay a captured event against your local server
+curl -X POST http://localhost:3000/webhooks/fpt \
+  -H "Content-Type: application/json" \
+  -H "X-FPT-Signature: t=1717023600,v1=a3f8c2e7d1..." \
+  --data-binary @captured-event.json
+```
+
+```javascript Node script
+import fs from "node:fs";
+
+const event = JSON.parse(fs.readFileSync("captured-event.json", "utf8"));
+const signature = "t=1717023600,v1=a3f8c2e7d1...";  // copy from captured headers
+
+const response = await fetch("http://localhost:3000/webhooks/fpt", {
+    method: "POST",
+    headers: {
+        "Content-Type": "application/json",
+        "X-FPT-Signature": signature,
+    },
+    body: JSON.stringify(event),
+});
+console.log(response.status);
+```
+</CodeGroup>
+
+<Warning>
+The captured signature is only valid for ~5 minutes after we sent it (our default timestamp tolerance) and for the exact body we signed. If you reformat the JSON or wait too long, signature verification will fail. For local replay testing where you want signature verification to keep working indefinitely, **disable the timestamp tolerance check in your dev environment** — but never in production.
+</Warning>
+
+## Recipe 4: Generate test payloads in code
+
+For unit tests of your handler logic, build synthetic events directly:
+
+<CodeGroup>
+```javascript Node.js (Jest)
+import crypto from "node:crypto";
+
+function buildSignedRequest(event, secret) {
+    const rawBody = JSON.stringify(event);
+    const t = Math.floor(Date.now() / 1000);
+    const v1 = crypto.createHmac("sha256", secret)
+        .update(`${t}.${rawBody}`)
+        .digest("hex");
+    return {
+        body: rawBody,
+        headers: { "x-fpt-signature": `t=${t},v1=${v1}` },
+    };
+}
+
+test("handles contact.sub_group_changed", async () => {
+    const event = {
+        eventId: "test-" + crypto.randomBytes(16).toString("hex"),
+        eventType: "contact.sub_group_changed",
+        eventTimestamp: new Date().toISOString(),
+        locationId: 1234,
+        organizationId: 5678,
+        apiVersion: "v1",
+        data: { contactId: 9876, previousSubGroupId: 3, newSubGroupId: 7 },
+    };
+    const req = buildSignedRequest(event, process.env.FPT_WEBHOOK_SECRET);
+    const res = await myHandler(req);
+    expect(res.status).toBe(200);
+    // ... assert your side effects
+});
+```
+
+```python Python (pytest)
+import hmac
+import hashlib
+import json
+import time
+import secrets
+
+def build_signed_request(event, secret):
+    raw_body = json.dumps(event).encode()
+    t = int(time.time())
+    v1 = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return {
+        "body": raw_body,
+        "headers": {"X-FPT-Signature": f"t={t},v1={v1}"},
+    }
+
+def test_handles_contact_sub_group_changed():
+    event = {
+        "eventId": "test-" + secrets.token_hex(16),
+        "eventType": "contact.sub_group_changed",
+        "eventTimestamp": "2026-06-10T23:45:00Z",
+        "locationId": 1234,
+        "organizationId": 5678,
+        "apiVersion": "v1",
+        "data": {"contactId": 9876, "previousSubGroupId": 3, "newSubGroupId": 7},
+    }
+    req = build_signed_request(event, os.environ["FPT_WEBHOOK_SECRET"])
+    res = my_handler(req)
+    assert res.status == 200
+    # ... assert your side effects
+```
+</CodeGroup>
+
+## Coming soon — "Send test event" button
+
+<Info>
+A **"Send test event"** action is on the roadmap. From your endpoint's row in Settings → Webhook Endpoints, click the button to fire a synthetic event of any type to your URL. You'll see the request, response status, and body inline — no need to modify real data.
+</Info>
+
+## Common gotchas
+
+<AccordionGroup>
+  <Accordion title="Signature mismatch because your framework re-encoded the body">
+    Express, Flask, ASP.NET — most web frameworks parse JSON into an object before your handler runs. If you sign `JSON.stringify(req.body)` instead of the raw bytes, you'll fail verification. See [Signature verification](/webhooks/signing) for the right pattern.
+  </Accordion>
+
+  <Accordion title="ngrok URL keeps changing">
+    Free-tier ngrok rotates the subdomain on every restart. Either update the FPT subscription each time, or use a paid plan with a reserved domain.
+  </Accordion>
+
+  <Accordion title="webhook.site stops capturing">
+    Free webhook.site sessions expire after a few days of inactivity. Your unique URL is durable but the captured request log may rotate.
+  </Accordion>
+
+  <Accordion title="Timestamps in test fixtures get stale">
+    If you store a captured signature in a fixture file and try to replay it weeks later, your verifier's timestamp tolerance check will reject it. For dev/test environments, consider disabling the tolerance check or regenerating fixtures dynamically.
+  </Accordion>
+</AccordionGroup>

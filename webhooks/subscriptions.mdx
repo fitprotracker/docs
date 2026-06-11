@@ -1,0 +1,96 @@
+---
+title: "Managing subscriptions"
+description: "Create, edit, rotate, and delete webhook subscriptions from the FPT admin."
+---
+
+A **subscription** ties a URL on your server to a set of event types you want to receive. You can have multiple subscriptions per location (one for billing events to your billing system, another for contact events to your CRM, etc.) and each one signs deliveries with its own HMAC secret.
+
+All subscription management happens in the FPT admin at **Settings → Webhook Endpoints**. We don't yet expose a public REST API for this — it's coming, but for v1.1 it's UI-only.
+
+## What's in a subscription
+
+| Field | Description |
+|---|---|
+| **URL** | Where we POST events. Must be HTTPS. We reject private/RFC1918 ranges and IPs in non-routable spaces. |
+| **Event types** | Which events to deliver to this URL. You can pick any combination — `contact.*` events, future event families, etc. |
+| **Scope** | Either **location-level** (events only from one location) or **organization-level** (events from every location in your org). The default depends on your admin role. |
+| **PII categories** | What categories of personal data are included in payloads. Defaults match the most common partner use case; tighten if your contract requires it. |
+| **Signing secret** | The HMAC secret used to sign every delivery from this subscription. Revealed once when generated; rotatable. |
+| **Status** | `active`, `paused`, `disabled`. See [delivery semantics](/webhooks/delivery) for when these flip automatically. |
+
+## Scope: location vs organization
+
+- **Location-scoped** subscription: deliveries include only events whose `locationId` matches your single subscribed location.
+- **Organization-scoped** subscription: deliveries include events from every location under your organization. The `locationId` in the envelope tells you which one.
+
+Pick organization scope if your integration spans multiple locations under a parent (franchise / corporate account). Pick location scope if you're integrating per-location and want isolation.
+
+<Note>
+You can only create organization-scoped subscriptions if you have organization-admin access. Location admins can only create location-scoped subscriptions.
+</Note>
+
+## Creating a subscription
+
+<Steps>
+  <Step title="Settings → Webhook Endpoints">
+    Navigate from the FPT admin sidebar.
+  </Step>
+  <Step title="Add Endpoint">
+    Opens a dialog with the URL + event-types + PII fields.
+  </Step>
+  <Step title="Save">
+    The subscription is active immediately. New events from the next change onward are delivered.
+  </Step>
+  <Step title="Generate Key">
+    Click on your new endpoint's row. The dialog shows a one-time signing secret — **copy it now** and store in your secrets manager. You can't view it again; you can only rotate.
+  </Step>
+</Steps>
+
+## Editing a subscription
+
+You can change:
+- **URL** — takes effect immediately for new deliveries (in-flight deliveries keep their existing target)
+- **Event types** — adding new ones means you'll start receiving them on the next change; removing them stops deliveries of that type
+- **PII categories** — affects payload projection for new deliveries
+
+You can't change scope (location vs organization) — that requires deleting and recreating.
+
+## Rotating the signing secret
+
+See the [key rotation section in Signature verification](/webhooks/signing#key-rotation) for the full procedure. Summary:
+
+<Steps>
+  <Step title="Click Rotate Key on the subscription row">
+    Dialog reveals the new secret one time.
+  </Step>
+  <Step title="Deploy the new secret to your endpoint">
+    Update your `FPT_WEBHOOK_SECRET` env var, restart your service.
+  </Step>
+  <Step title="Verify a real event lands and verifies OK">
+    Edit a contact, watch the next delivery.
+  </Step>
+</Steps>
+
+<Warning>
+Rotation invalidates the old secret immediately. There's no grace period where both work. Plan your rotations during low-traffic windows or use the test-event flow to verify before broadcasting.
+</Warning>
+
+## Pausing and re-activating
+
+- A **paused** subscription stops receiving new events but isn't deleted. The configuration is preserved.
+- A subscription that fails for 24 hours straight automatically transitions to **disabled** — see [delivery semantics](/webhooks/delivery#retries-and-backoff). Re-enable from the same admin page.
+- **Disabled** subscriptions don't catch up on events missed while disabled. Re-enabling resumes delivery for *new* events going forward.
+
+## Deletion
+
+Deleting a subscription is permanent. Pending retries are dropped. The signing secret stops being valid.
+
+If you want to temporarily stop receiving events without losing the subscription, **pause** it instead.
+
+## Coming soon
+
+<Info>
+**v1.2** will ship a public REST API for subscription management — programmatically create / update / rotate / delete subscriptions, useful for partners onboarding new customers programmatically.
+
+**v1.3** plans a webhook-management partner portal hosted at this docs site, so partners can see delivery history, retry failed deliveries, and inspect raw payloads without needing an FPT admin login.
+</Info>

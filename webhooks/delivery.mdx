@@ -1,0 +1,131 @@
+---
+title: "Delivery semantics"
+description: "At-least-once delivery, idempotency on EventId, retry & backoff, and ordering guarantees."
+---
+
+This page is the contract. Read it before you write your handler — internalizing these four rules will save you a support ticket.
+
+<Warning>
+The four rules:
+
+1. **At-least-once.** We may deliver the same event more than once.
+2. **Dedupe by `eventId`.** It's a globally unique idempotency key.
+3. **Return 2xx within 30 seconds** or we treat it as a failure and retry.
+4. **Don't rely on ordering** between events. Use `eventTimestamp` to sort.
+</Warning>
+
+## At-least-once delivery
+
+We commit to **at-least-once** delivery. That means:
+
+- If your endpoint responds 2xx, we mark the delivery successful and never re-send that event ID.
+- If your endpoint times out, returns non-2xx, or we hit a transient infrastructure issue mid-delivery, **we retry** — and you may end up seeing the same event ID twice.
+
+We do **not** offer exactly-once. That's a deliberate trade-off: building exactly-once across an internet boundary requires partner-side cooperation (a transactional dedupe store), and most partners need to build that anyway for other reasons. We chose to make the dedup point explicit rather than pretend.
+
+## Idempotency on `eventId`
+
+Every event carries a unique `eventId` in the envelope:
+
+```json
+{ "eventId": "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e", "eventType": "contact.updated", ... }
+```
+
+When your endpoint receives an event:
+
+<Steps>
+  <Step title="Verify the signature">
+    [HMAC-SHA256 check](/webhooks/signing) against the raw body. Reject any request that fails verification.
+  </Step>
+  <Step title="Check whether you've seen this eventId before">
+    Look it up in your dedupe store (Postgres table, Redis SET, DynamoDB item — anything atomic with a unique constraint on the ID).
+    - **Seen** → return 200 immediately, skip processing.
+    - **New** → continue.
+  </Step>
+  <Step title="Insert the eventId BEFORE processing">
+    Do an atomic insert-if-not-exists. If the insert fails because of a unique-constraint violation, treat as a duplicate (another worker is processing it, or it's a retry that's racing with the first attempt) and return 200.
+  </Step>
+  <Step title="Process the event in your business logic">
+    Apply the change, update your records, fire side effects.
+  </Step>
+  <Step title="Return 200">
+    A 2xx response signals "I have it; don't send it again." We mark the delivery durable at that point.
+  </Step>
+</Steps>
+
+### Minimal Postgres example
+
+```sql
+CREATE TABLE webhook_dedupe (
+    event_id      CHAR(32) PRIMARY KEY,
+    received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processed_at  TIMESTAMPTZ
+);
+
+-- At delivery time:
+INSERT INTO webhook_dedupe (event_id) VALUES ($1)
+ON CONFLICT (event_id) DO NOTHING
+RETURNING event_id;
+-- If this returns a row, you're the first to see this event — process it.
+-- If it returns no rows, someone else already inserted it — return 200.
+```
+
+<Note>
+**How long to retain dedupe entries?** A month is plenty. Our retry window is well under 24 hours (see backoff below), so anything older than that won't recur. Periodically purge old rows so the table doesn't grow unbounded.
+</Note>
+
+## Retries and backoff
+
+If your endpoint fails (non-2xx response, timeout > 30s, connection refused), we retry on an exponential schedule:
+
+| Attempt | Approximate delay since previous attempt |
+|---|---|
+| #2 | 1 minute |
+| #3 | 5 minutes |
+| #4 | 30 minutes |
+| #5 | 2 hours |
+| #6 | 8 hours |
+| #7 | 24 hours |
+| _then_ | Subscription marked unhealthy; deliveries paused; admin email sent |
+
+After 24 hours of total failure, your subscription enters a paused state and won't receive new events until an admin reactivates it in the FPT Settings → Webhook Endpoints page. We send an email when this happens.
+
+<Tip>
+A 5-minute partner outage triggers maybe two retries and you recover transparently. A 6-hour outage will queue events but you'll still receive them eventually. A 48-hour outage requires manual reactivation — but no events are permanently lost as long as the subscription comes back within our retention window.
+</Tip>
+
+## What counts as success vs failure
+
+| Response | Meaning |
+|---|---|
+| 2xx (200–299) | **Success.** We won't send this event again. |
+| 4xx (400–499) | **Permanent failure.** We don't retry — your endpoint indicated the request itself is unprocessable. Logs only. |
+| 5xx (500–599) | **Transient failure.** Retry on the schedule above. |
+| Timeout (>30s) | **Transient failure.** Retry on the schedule above. |
+| Connection refused / DNS failure | **Transient failure.** Retry. |
+| TLS handshake failure | **Permanent failure.** We don't retry — typically misconfigured certificates. We email the subscription owner. |
+
+<Warning>
+**Don't return 4xx for transient issues** (database locked, downstream API slow). 4xx tells us "this event is permanently bad" — we'll skip retries and drop it. For "try again later" semantics, return 5xx or just time out.
+</Warning>
+
+## Ordering
+
+We **don't guarantee ordering** across events. If a contact's status flips Lead → Member → VIP within 200ms, you might receive the two `contact.status_changed` events in either order. Plan for this:
+
+- **Sort by `eventTimestamp`** when order matters
+- **Coalesce** at your end if you only care about the latest state (look up the contact's current state at receipt time via your own data, not the event)
+- **Don't make decisions from a single event's `previousX → newX` chain** if multiple events of that type can fire close together — the previous values you see may be stale
+
+## Why these rules exist
+
+Each one prevents a specific support ticket we've seen with other webhook integrations:
+
+| Rule | Ticket it prevents |
+|---|---|
+| At-least-once + dedupe by eventId | "Our customer was charged twice / had two contacts created" |
+| 30-second timeout, return 2xx fast | "All our retries are firing because our endpoint is slow" |
+| 4xx vs 5xx distinction | "Our endpoint returned 400 for a transient DB error and we never got the event again" |
+| Exponential backoff | "We had a 5-minute outage and our subscription got disabled" |
+| No ordering guarantee | "Events arrived out of order and corrupted our state" |
+| HMAC signature verification | "How do we know it's really FitProTracker?" |

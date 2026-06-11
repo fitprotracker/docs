@@ -1,0 +1,91 @@
+---
+title: "Event catalog"
+description: "Every event FitProTracker can deliver, what it means, and when it fires."
+---
+
+This is the full catalog. For each event we document:
+
+- **What triggers it** in the FPT business model
+- **The `data` payload shape** — the event-specific bit inside the envelope
+- **When you'd care** about it
+
+For the outer envelope shape (`eventId`, `eventType`, `eventTimestamp`, etc.) see the [envelope reference](/webhooks/envelope).
+
+## Available today (v1.1)
+
+The `contact.*` family — five events covering the contact lifecycle.
+
+<CardGroup cols={2}>
+  <Card title="contact.created" icon="user-plus" href="/events/contact-created">
+    A new contact was added at a location.
+  </Card>
+  <Card title="contact.updated" icon="user-pen" href="/events/contact-updated">
+    Any tracked field on an existing contact changed.
+  </Card>
+  <Card title="contact.deleted" icon="user-minus" href="/events/contact-deleted">
+    A contact was removed or deactivated.
+  </Card>
+  <Card title="contact.status_changed" icon="arrows-up-down" href="/events/contact-status-changed">
+    Contact moved between lifecycle groups (Lead → Member → etc.).
+  </Card>
+  <Card title="contact.sub_group_changed" icon="arrows-left-right" href="/events/contact-sub-group-changed">
+    Contact assigned to a different business sub-group.
+  </Card>
+</CardGroup>
+
+## On the roadmap
+
+These event families are designed and on the schedule but **not yet emitted**. You can pre-plan your integration around them, but subscribing today won't deliver anything.
+
+<AccordionGroup>
+  <Accordion title="membership.* — v1.2">
+    `membership.started`, `membership.renewed`, `membership.cancelled`, `membership.frozen`, `membership.expired` — emitted from the FPT billing lifecycle.
+  </Accordion>
+
+  <Accordion title="payment.* — v1.2">
+    `payment.succeeded`, `payment.failed`, `payment.refunded` — emitted when transactions clear the payment gateway.
+  </Accordion>
+
+  <Accordion title="subscription.* — v1.2">
+    `subscription.created`, `subscription.updated`, `subscription.cancelled` — for recurring billing plans (distinct from membership lifecycle).
+  </Accordion>
+
+  <Accordion title="appointment.* — v1.3">
+    `appointment.scheduled`, `appointment.rescheduled`, `appointment.completed`, `appointment.cancelled`, `appointment.no_show` — 1-on-1 appointment lifecycle.
+  </Accordion>
+
+  <Accordion title="class.* — v1.3">
+    `class.attended`, `class.cancelled`, `class.waitlisted` — group class attendance.
+  </Accordion>
+
+  <Accordion title="message.* — v1.3">
+    `message.sms_received`, `message.sms_failed`, `message.email_received`, `message.call_received` — inbound communications from contacts.
+  </Accordion>
+
+  <Accordion title="task.*, note.*, tag.*, campaign.* — v1.3+">
+    Staff workflow and automation events.
+  </Accordion>
+</AccordionGroup>
+
+## Naming conventions
+
+- **Resource.verb** format — `<entity>.<past_tense_action>`
+- **Lowercase, dot-separated** — `contact.sub_group_changed`, never `ContactSubGroupChanged` or `contact-sub-group-changed`
+- **Past tense** — events describe things that already happened. `created`, `updated`, `deleted`. Never `creating` or `delete`.
+- **Stable** — once we ship an event type, the string never changes. Adding new fields to its `data` payload is forward-compatible; removing fields requires a new event type.
+
+## Envelope shape (every event)
+
+```json
+{
+  "eventId":         "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":       "contact.sub_group_changed",
+  "eventTimestamp":  "2026-06-10T23:45:00.123Z",
+  "locationId":      1234,
+  "organizationId":  5678,
+  "apiVersion":      "v1",
+  "data":            { /* event-specific — see the event's page */ }
+}
+```
+
+See [Event envelope](/webhooks/envelope) for the full field reference.

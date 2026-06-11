@@ -1,0 +1,89 @@
+---
+title: "Webhooks overview"
+description: "How FitProTracker delivers real-time events to your application."
+---
+
+When something changes in FitProTracker — a contact's group flips from Lead to Member, a payment succeeds, a class booking gets canceled — we send your application an HTTPS POST with a signed JSON payload describing what happened. That's a webhook.
+
+Webhooks are how partner integrations stay in sync with FPT data **without polling**.
+
+## The end-to-end flow
+
+```
+┌───────────────────────────────────────────────────────────────────────┐
+│  A change happens in FitProTracker                                    │
+│  (staff adds a contact, customer's membership starts, payment runs)   │
+└───────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  FPT detects the change via SQL Server Change Tracking, builds an     │
+│  IntegrationEvent envelope, and publishes it to an internal topic.    │
+└───────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  The dispatcher looks up every subscription that wants this event    │
+│  type for this location, signs the payload with the subscription's   │
+│  HMAC secret, and POSTs to the subscription's URL.                   │
+└───────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  Your endpoint receives the POST, verifies the signature, deduplicates│
+│  by EventId, processes the event, returns 200.                        │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+Typical end-to-end latency is **5–15 seconds** from change to delivery. Events are coalesced within a short window (~5–10 seconds) when many changes hit the same contact in rapid succession.
+
+## What you'll work with
+
+<CardGroup cols={2}>
+  <Card title="The envelope" icon="envelope" href="/webhooks/envelope">
+    Every webhook has the same outer shape — six top-level fields. The variable bit is the `data` object.
+  </Card>
+  <Card title="Delivery semantics" icon="arrows-rotate" href="/webhooks/delivery">
+    At-least-once delivery with retries. You must dedupe by EventId.
+  </Card>
+  <Card title="Signature verification" icon="shield-halved" href="/webhooks/signing">
+    Every request is signed with HMAC-SHA256. Verify before you process.
+  </Card>
+  <Card title="Managing subscriptions" icon="gear" href="/webhooks/subscriptions">
+    Create, edit, rotate keys, and delete subscriptions from the FPT admin.
+  </Card>
+</CardGroup>
+
+## Design principles
+
+These shape how the system behaves — partners that work with them get a smooth experience.
+
+<AccordionGroup>
+  <Accordion title="At-least-once delivery, never exactly-once">
+    We may deliver the same event more than once. This happens when your endpoint times out before responding 200, when we redeploy mid-delivery, or when a transient network blip causes a retry. **Every event has a unique `eventId`** — use it to dedupe on your end.
+  </Accordion>
+
+  <Accordion title="The envelope is stable; the data is event-specific">
+    Top-level fields (`eventId`, `eventType`, `eventTimestamp`, `locationId`, `organizationId`, `apiVersion`, `data`) are guaranteed across every event we ever ship. The `data` object varies by event type — see the [event catalog](/events/overview) for the shape per event.
+  </Accordion>
+
+  <Accordion title="No ordering guarantees across events">
+    Two events fired close together might land at your endpoint in either order. If your business logic depends on order, use `eventTimestamp` to sort. Within a single subscription we send sequentially; across subscriptions, deliveries happen in parallel.
+  </Accordion>
+
+  <Accordion title="HTTPS required, IP ranges are not stable">
+    Your endpoint must be HTTPS-accessible from the public internet. We won't deliver to HTTP URLs or private/internal addresses. We **don't publish a stable IP allowlist** — outbound calls originate from Azure infrastructure and can come from a range of addresses. Authenticate by **verifying the signature**, not by IP filtering.
+  </Accordion>
+
+  <Accordion title="Retry on failure, with exponential backoff">
+    Non-2xx responses or timeouts trigger a retry. The schedule backs off over hours, not minutes — short outages won't disable your subscription. See [delivery semantics](/webhooks/delivery) for the exact schedule.
+  </Accordion>
+</AccordionGroup>
+
+## What's currently shipped vs. on the roadmap
+
+<Tip>
+**Shipped (v1.1):** `contact.*` event family — created, updated, deleted, status changed, sub-group changed.
+
+**Roadmap:** `membership.*`, `payment.*`, `subscription.*` (v1.2) · `appointment.*`, `class.*`, `message.*` (v1.3). See the [event catalog](/events/overview) for what's live right now.
+</Tip>

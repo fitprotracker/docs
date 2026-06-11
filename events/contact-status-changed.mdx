@@ -1,0 +1,77 @@
+---
+title: "contact.status_changed"
+description: "A contact moved between lifecycle groups (Lead → Member → etc.)."
+---
+
+A `contact.status_changed` event fires when a contact's **Contact Group** (lifecycle stage) changes. Contact Groups in FPT are the canonical lifecycle enum:
+
+| ID | Group | Meaning |
+|---|---|---|
+| 1 | Leads | Prospective customers — not yet engaged |
+| 2 | Prospects | Active interest, possibly in trial |
+| 3 | Members | Paying customers with active memberships |
+| 4 | Past Members | Former customers, churned |
+| 5 | Non-members | Active in the system but not on a membership |
+| 6 | Other | Catch-all for non-standard cases |
+| 7 | Staff | Employees / trainers (separate from gym members) |
+
+When a contact transitions between these — like a lead converting to a member, or a member churning to past-member — this event fires with both the previous and new group IDs.
+
+## Payload
+
+```json
+{
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":     "contact.status_changed",
+  "eventTimestamp": "2026-06-10T23:45:00.123Z",
+  "locationId":    1234,
+  "organizationId": 5678,
+  "apiVersion":    "v1",
+  "data": {
+    "contactId":        9876,
+    "previousStatusId": 1,
+    "newStatusId":      3
+  }
+}
+```
+
+### Fields in `data`
+
+| Field | Type | Description |
+|---|---|---|
+| `contactId` | `number` | The contact whose status changed. |
+| `previousStatusId` | `number` | The Contact Group ID the contact was in BEFORE the change. |
+| `newStatusId` | `number` | The Contact Group ID the contact is in AFTER the change. |
+
+<Note>
+**Why "status" instead of "contact group"?** Externally, "status" is the more universal term for a lifecycle stage. Internally FPT calls it Contact Group. The event name uses the partner-facing label; the table above documents the mapping.
+</Note>
+
+## What triggers it
+
+- Staff explicitly changes a contact's group in the admin
+- An automation triggers a group change (e.g., "When trial ends → flip to Past Member")
+- Billing lifecycle (e.g., "Member's last payment failed and they churned → flip to Past Member") — when the billing-driven flow eventually publishes its own events (v1.2), you may receive a `payment.failed` or `membership.cancelled` shortly before this
+- A contact-import flow assigns groups in bulk
+
+## Companion `contact.updated`
+
+`contact.status_changed` always fires **alongside** `contact.updated` for the same `contactId`. They share the same change event but represent different abstractions:
+
+- `contact.updated` — "something on this contact changed, look it up"
+- `contact.status_changed` — "specifically the lifecycle group changed, here are the previous and new values"
+
+If you subscribe to both, dedupe in your handler so you only act once per logical change.
+
+## Important: multiple rapid transitions get coalesced
+
+If a contact's status changes Lead → Prospect → Member in 200ms (rare but possible via automation chains), the `previousStatusId` you receive may be Lead and `newStatusId` may be Member — skipping Prospect entirely. The intermediate state isn't lost in FPT's database; it just doesn't surface as a separate event.
+
+If you need to track every step, use FPT's contact-history API (when released) rather than relying on this event being granular.
+
+## What you might do with this
+
+- **Trigger a marketing automation** in your platform when leads convert to members
+- **Update analytics dashboards** for conversion rate, churn rate, lifecycle funnel
+- **Sales notifications** — "your assigned lead just became a member"
+- **Workflow rules** — "if a Member becomes a Past Member, ask for feedback via survey"

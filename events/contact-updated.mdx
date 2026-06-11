@@ -1,0 +1,69 @@
+---
+title: "contact.updated"
+description: "Any tracked field on an existing contact changed."
+---
+
+A `contact.updated` event fires when **any** change-tracked field on an existing contact changes. This is the catch-all event for the contact lifecycle — fires for name changes, phone number updates, communication preferences, tag additions, activity timestamps (last SMS sent, last call received), and pretty much everything else.
+
+<Note>
+**Rapid changes are coalesced.** If a contact is updated 5 times in 3 seconds, you typically get one `contact.updated` event reflecting the final state — not 5 separate events. Coalescing window is ~5–10 seconds.
+</Note>
+
+## Payload
+
+```json
+{
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":     "contact.updated",
+  "eventTimestamp": "2026-06-10T23:45:00.123Z",
+  "locationId":    1234,
+  "organizationId": 5678,
+  "apiVersion":    "v1",
+  "data": {
+    "contactId": 9876,
+    "operation": "update"
+  }
+}
+```
+
+### Fields in `data`
+
+| Field | Type | Description |
+|---|---|---|
+| `contactId` | `number` | The contact whose data changed. |
+| `operation` | `string` | Always `"update"` for this event type. |
+
+<Note>
+**The payload doesn't include the changed fields.** This is intentional — `contact.updated` is a "something changed, look up the current state" signal, not a diff. If you need to know specifically *what* changed, watch the typed sub-events (`contact.status_changed`, `contact.sub_group_changed`) which include before/after values.
+
+If you need the full current state of the contact, look it up from your own copy or (eventually) the FPT public API.
+</Note>
+
+## When else might this fire?
+
+Beyond direct field edits, `contact.updated` fires when:
+
+- A new tag is applied or removed
+- Communication preferences (canSms, canEmail, canCall) change
+- The contact's "last contacted" / "last SMS in" / "last call" activity timestamps tick forward
+- A staff member is assigned or unassigned
+
+In short: if it's tracked in the contact's record, a change to it ripples here.
+
+## Relationship to the typed events
+
+When something specific happens — like a status or sub-group flip — you'll receive BOTH `contact.updated` AND the typed event. They share the same `contactId` and arrive close in time.
+
+| You'll see this... | ...along with this |
+|---|---|
+| `contact.status_changed` | `contact.updated` |
+| `contact.sub_group_changed` | `contact.updated` |
+| `contact.deleted` | (no `contact.updated` — we suppress it to give you one clean signal) |
+
+This means if you subscribe to ONLY `contact.updated`, you get a notification for every change. If you also subscribe to the typed events, you can branch on the more specific signal when it fires and use `updated` for the catch-all case.
+
+## What you might do with this
+
+- **Cache invalidation** — flush your locally-cached copy of the contact and re-fetch on next demand
+- **Sync** — pull the contact's current state from your source-of-truth and reconcile
+- **Activity feed** — note that the contact was touched, for later aggregation

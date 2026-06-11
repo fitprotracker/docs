@@ -1,0 +1,68 @@
+---
+title: "contact.deleted"
+description: "A contact was removed or deactivated at a location."
+---
+
+A `contact.deleted` event fires when a contact is removed from active use at a location. FPT uses **soft delete** — the record is flagged inactive rather than physically removed — so the contact's history and associated data remain intact for audit purposes.
+
+<Warning>
+**The contact still exists in FPT after this event.** The `IsActive` flag is set to false, and the contact is hidden from the active-contacts grid in the FPT admin. If your integration deletes the matching record on your end, you may want to instead mark it as inactive — it's possible for a contact to be reactivated later (in which case you'd see a `contact.updated` event).
+</Warning>
+
+## Payload
+
+```json
+{
+  "eventId":        "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":     "contact.deleted",
+  "eventTimestamp": "2026-06-10T23:45:00.123Z",
+  "locationId":    1234,
+  "organizationId": 5678,
+  "apiVersion":    "v1",
+  "data": {
+    "contactId": 9876,
+    "operation": "delete"
+  }
+}
+```
+
+### Fields in `data`
+
+| Field | Type | Description |
+|---|---|---|
+| `contactId` | `number` | The contact that was just deactivated. |
+| `operation` | `string` | Always `"delete"` for this event type. |
+
+## What triggers it
+
+- Staff explicitly deletes a contact from the FPT admin
+- Bulk deactivation flows (e.g., importing a new contact list and marking old contacts inactive)
+- Location transfers (the contact appears to "leave" this location — though in that case you may also see it appear at another `locationId` via `contact.created`)
+
+## What does NOT fire this
+
+- **Membership cancellation** alone doesn't delete the contact — the contact stays active with `contactGroupId` flipped to a non-member group. You'd see `contact.status_changed` for that, not `contact.deleted`.
+- **Hard deletes** from the database (very rare in FPT's data model) are not surfaced as `contact.deleted` events — they'd show up as the contact disappearing from subsequent `contact.updated` events.
+
+## Suppression of `contact.updated`
+
+When `contact.deleted` fires, we **suppress** the simultaneous `contact.updated` event for the same change. You get one clean deletion signal instead of an updated-then-deleted pair.
+
+## What you might do with this
+
+- **Soft-deactivate** the matching record on your side (mark inactive, archive, hide — but don't delete physically; reactivation is possible)
+- **Stop active campaigns** targeting the contact in your marketing system
+- **Notify the sales team** that the lead is no longer pursuing
+- **Reporting** — track churn rate, deactivation reasons (if known)
+
+## Common gotcha
+
+<AccordionGroup>
+  <Accordion title="Are deleted contacts gone forever?">
+    No — they're flagged inactive but the row remains. Staff can reactivate from the admin, which fires `contact.updated`. Don't assume "deleted = gone."
+  </Accordion>
+
+  <Accordion title="Will I receive any more events for a deleted contact?">
+    Generally no, while it remains inactive. If it's reactivated, future events will start arriving again. If it's deleted then reactivated then deleted again, expect two `contact.deleted` events with the same `contactId` but different `eventId`s.
+  </Accordion>
+</AccordionGroup>

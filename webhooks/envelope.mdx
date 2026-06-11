@@ -1,0 +1,120 @@
+---
+title: "Event envelope"
+description: "The shape of every webhook payload FitProTracker sends."
+---
+
+Every webhook event — regardless of type — arrives in the same outer envelope. Only the `eventType` and `data` fields vary. Lock onto this envelope and your handler will work for `contact.*` today and every event family we ship in the future.
+
+## Anatomy
+
+```json
+{
+  "eventId":         "9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e",
+  "eventType":       "contact.sub_group_changed",
+  "eventTimestamp":  "2026-06-10T23:45:00.123Z",
+  "locationId":      1234,
+  "organizationId":  5678,
+  "apiVersion":      "v1",
+  "data": {
+    "contactId":            9876,
+    "previousSubGroupId":   3,
+    "newSubGroupId":        7
+  }
+}
+```
+
+## Field reference
+
+| Field | Type | Description |
+|---|---|---|
+| `eventId` | `string` | A globally unique identifier for this delivery. **Use this as your idempotency key** — see [delivery semantics](/webhooks/delivery). Hex string, no dashes, 32 characters. |
+| `eventType` | `string` | Dot-namespaced event identifier. Format: `<resource>.<verb>` (e.g. `contact.created`, `payment.succeeded`). See [event catalog](/events/overview) for the full list. |
+| `eventTimestamp` | `string (ISO 8601)` | When the underlying change happened in FPT, in UTC. Use this — not your receipt time — to order events. |
+| `locationId` | `number` | The FPT location the event belongs to. For multi-location organizations, the same event from two locations is two separate deliveries with different `locationId`s. |
+| `organizationId` | `number` | The FPT organization (the franchise / parent entity) the location belongs to. `0` if the location has no parent organization. |
+| `apiVersion` | `string` | The envelope schema version. Currently `"v1"`. Future breaking changes bump this; backward-compatible additions keep the same version. |
+| `data` | `object` | Event-specific payload. Shape varies by `eventType` — see the individual event pages under [event catalog](/events/overview). |
+
+## What's in `data`?
+
+The `data` object is the part that actually tells you what happened. Its shape depends on the event type:
+
+<CodeGroup>
+```json contact.created
+{
+  "contactId": 9876,
+  "operation": "create"
+}
+```
+
+```json contact.updated
+{
+  "contactId": 9876,
+  "operation": "update"
+}
+```
+
+```json contact.deleted
+{
+  "contactId": 9876,
+  "operation": "delete"
+}
+```
+
+```json contact.status_changed
+{
+  "contactId":        9876,
+  "previousStatusId": 1,
+  "newStatusId":      3
+}
+```
+
+```json contact.sub_group_changed
+{
+  "contactId":          9876,
+  "previousSubGroupId": 3,
+  "newSubGroupId":      7
+}
+```
+</CodeGroup>
+
+<Note>
+**Notice the pattern:** for "something changed from X to Y" events we send both the previous and new values. For "an action occurred" events we send the action and the affected resource ID. Your handler typically looks up the full current state via your own database, AI Search index, or eventually a FPT public API call — webhooks tell you *what changed and when*, not necessarily *the entire current state*.
+</Note>
+
+## Request headers
+
+Beyond the JSON body, every delivery includes:
+
+```http
+POST /your/path HTTP/1.1
+Content-Type:    application/json
+X-FPT-Signature: t=1717023600,v1=a3f8c2e7d1...
+User-Agent:      FitProTracker-Webhooks/1.1
+```
+
+| Header | Meaning |
+|---|---|
+| `X-FPT-Signature` | HMAC-SHA256 signature of `${timestamp}.${rawBody}` — see [Signature verification](/webhooks/signing) |
+| `Content-Type` | Always `application/json; charset=utf-8` |
+| `User-Agent` | `FitProTracker-Webhooks/<version>` — identifies the dispatcher version |
+
+## Conventions
+
+<AccordionGroup>
+  <Accordion title="camelCase property names">
+    All JSON properties use camelCase (`contactId`, not `ContactId` or `contact_id`). The wire format is stable; the C# / SQL backend uses PascalCase internally but serialization converts.
+  </Accordion>
+
+  <Accordion title="Null fields are omitted">
+    If a field's value is `null`, it's left out of the JSON entirely rather than emitted as `"field": null`. Treat absence and explicit null as equivalent.
+  </Accordion>
+
+  <Accordion title="Timestamps are always UTC, always ISO 8601">
+    Every `*At` / `*Date` / `*Timestamp` field is ISO 8601 in UTC with millisecond precision. No timezone offsets, no DATE-only formats unless explicitly noted on the event page.
+  </Accordion>
+
+  <Accordion title="IDs are integers, not strings">
+    `contactId`, `locationId`, `organizationId`, `subscriptionId`, etc. are JSON numbers. Treat them as 32-bit ints on receipt; we'd give plenty of warning before we ever needed to widen to 64-bit.
+  </Accordion>
+</AccordionGroup>
