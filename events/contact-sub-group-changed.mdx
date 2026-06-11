@@ -19,6 +19,15 @@ Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **locatio
   "apiVersion":    "v1",
   "data": {
     "contactId":            9876,
+    "firstName":            "Jane",
+    "lastName":             "Doe",
+    "fullName":             "Jane Doe",
+    "email":                "jane@example.com",
+    "phone":                "+15551234567",
+    "isActive":             true,
+    "contactGroupId":       1,
+    "subGroupId":           7,
+    "subGroupName":         "Gold Tier",
     "previousSubGroupId":   3,
     "newSubGroupId":        7,
     "previousSubGroupName": "Bronze Tier",
@@ -29,13 +38,21 @@ Unlike Contact Groups (which are a fixed 7-value enum), sub-groups are **locatio
 
 ### Fields in `data`
 
+The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a sub-group change without subscribing to `contact.updated` or maintaining your own `contactId → identity` lookup.
+
 | Field | Type | Description |
 |---|---|---|
 | `contactId` | `number` | The contact whose sub-group changed. |
+| `firstName`, `lastName`, `fullName` | `string` | Identity at the time of the change. |
+| `email`, `phone` | `string` | Direct contact channels — usable immediately for outreach. |
+| `isActive` | `boolean` | `true` for a live contact. |
+| `contactGroupId` | `number` | Current Contact Group ID (lifecycle stage). |
+| `subGroupId` | `number` or `null` | Current sub-group ID (same as `newSubGroupId`). |
+| `subGroupName` | `string` or `null` | Current sub-group label (same as `newSubGroupName`). |
 | `previousSubGroupId` | `number` or `null` | The sub-group ID BEFORE the change. `null` if the contact had no sub-group previously. |
 | `newSubGroupId` | `number` or `null` | The sub-group ID AFTER the change. `null` if the contact was unassigned from any sub-group. |
-| `previousSubGroupName` | `string` or `null` | Human-readable label for `previousSubGroupId`. `null` when the ID is null. **Recommended**: route by name across locations — sub-group IDs are location-scoped. |
-| `newSubGroupName` | `string` or `null` | Human-readable label for `newSubGroupId`. `null` when the ID is null. |
+| `previousSubGroupName` | `string` or `null` | Label for `previousSubGroupId`. `null` when the ID is null. **Recommended**: route by name across locations — sub-group IDs are location-scoped. |
+| `newSubGroupName` | `string` or `null` | Label for `newSubGroupId`. `null` when the ID is null. |
 
 <Note>
 **Either side can be null.** Three valid combinations:

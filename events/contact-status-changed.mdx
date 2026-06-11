@@ -29,6 +29,15 @@ When a contact transitions between these — like a lead converting to a member,
   "apiVersion":    "v1",
   "data": {
     "contactId":          9876,
+    "firstName":          "Jane",
+    "lastName":           "Doe",
+    "fullName":           "Jane Doe",
+    "email":              "jane@example.com",
+    "phone":              "+15551234567",
+    "isActive":           true,
+    "contactGroupId":     3,
+    "subGroupId":         null,
+    "subGroupName":       null,
     "previousStatusId":   1,
     "newStatusId":        3,
     "previousStatusName": "Leads",
@@ -39,13 +48,21 @@ When a contact transitions between these — like a lead converting to a member,
 
 ### Fields in `data`
 
+The payload carries the **identity baseline** (same shape as [`contact.created`](/events/contact-created)) plus the diff fields specific to this event. You can act on a status change without subscribing to `contact.updated` or maintaining your own `contactId → identity` lookup.
+
 | Field | Type | Description |
 |---|---|---|
 | `contactId` | `number` | The contact whose status changed. |
-| `previousStatusId` | `number` | The Contact Group ID the contact was in BEFORE the change. |
-| `newStatusId` | `number` | The Contact Group ID the contact is in AFTER the change. |
-| `previousStatusName` | `string` | Human-readable label for `previousStatusId` (e.g., `"Leads"`, `"Past Members"`). Use this to route without your own ID→label table. |
-| `newStatusName` | `string` | Human-readable label for `newStatusId`. |
+| `firstName`, `lastName`, `fullName` | `string` | Identity at the time of the change. |
+| `email`, `phone` | `string` | Direct contact channels — usable immediately for outreach. |
+| `isActive` | `boolean` | `true` for a live contact. |
+| `contactGroupId` | `number` | Current Contact Group ID (same as `newStatusId`). |
+| `subGroupId` | `number` or `null` | Current sub-group ID (location-scoped). |
+| `subGroupName` | `string` or `null` | Current sub-group label. |
+| `previousStatusId` | `number` | The Contact Group ID BEFORE the change. |
+| `newStatusId` | `number` | The Contact Group ID AFTER the change (same as `contactGroupId`). |
+| `previousStatusName` | `string` | Label for `previousStatusId` (e.g., `"Leads"`, `"Past Members"`). |
+| `newStatusName` | `string` | Label for `newStatusId`. |
 
 <Note>
 **Why "status" instead of "contact group"?** Externally, "status" is the more universal term for a lifecycle stage. Internally FPT calls it Contact Group. The event name uses the partner-facing label; the table above documents the mapping.
