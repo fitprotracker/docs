@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "FitProTracker Developer",
+  "name": "Fit Pro Tracker Developer",
   "colors": {
     "primary": "#180E42",
     "light": "#4f46e5",

@@ -1,9 +1,9 @@
 ---
 title: "Signature verification"
-description: "Verify that webhook requests genuinely come from FitProTracker using HMAC-SHA256."
+description: "Verify that webhook requests genuinely come from Fit Pro Tracker using HMAC-SHA256."
 ---
 
-Every webhook FitProTracker delivers carries a cryptographic signature in the `X-FPT-Signature` header. Verifying this signature on every request proves the payload genuinely came from us and hasn't been tampered with in transit.
+Every webhook Fit Pro Tracker delivers carries a cryptographic signature in the `X-FPT-Signature` header. Verifying this signature on every request proves the payload genuinely came from us and hasn't been tampered with in transit.
 
 <Warning>
 **Verify the signature on every request, before any processing.** Don't trust the body, don't read the `eventType`, don't even log the payload until verification passes. An unsigned or invalid request should return `401 Unauthorized` immediately.

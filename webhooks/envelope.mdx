@@ -1,6 +1,6 @@
 ---
 title: "Event envelope"
-description: "The shape of every webhook payload FitProTracker sends."
+description: "The shape of every webhook payload Fit Pro Tracker sends."
 ---
 
 Every webhook event — regardless of type — arrives in the same outer envelope. Only the `eventType` and `data` fields vary. Lock onto this envelope and your handler will work for `contact.*` today and every event family we ship in the future.
