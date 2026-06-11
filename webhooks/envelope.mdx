@@ -14,7 +14,7 @@ Every webhook event — regardless of type — arrives in the same outer envelop
   "eventTimestamp":  "2026-06-10T23:45:00.123Z",
   "locationId":      1234,
   "organizationId":  5678,
-  "apiVersion":      "v1",
+  "apiVersion":      "2026-05-29",
   "data": {
     "contactId":            9876,
     "previousSubGroupId":   3,
@@ -32,25 +32,44 @@ Every webhook event — regardless of type — arrives in the same outer envelop
 | `eventTimestamp` | `string (ISO 8601)` | When the underlying change happened in FPT, in UTC. Use this — not your receipt time — to order events. |
 | `locationId` | `number` | The FPT location the event belongs to. For multi-location organizations, the same event from two locations is two separate deliveries with different `locationId`s. |
 | `organizationId` | `number` | The FPT organization (the franchise / parent entity) the location belongs to. `0` if the location has no parent organization. |
-| `apiVersion` | `string` | The envelope schema version. Currently `"v1"`. Future breaking changes bump this; backward-compatible additions keep the same version. |
+| `apiVersion` | `string` | Date-stamped envelope schema version (Stripe pattern). Currently `"2026-05-29"`. Backward-compatible additions (new optional fields) keep the same version; breaking changes ship a new dated version and consumers can pin to one. |
 | `data` | `object` | Event-specific payload. Shape varies by `eventType` — see the individual event pages under [event catalog](/events/overview). |
 
 ## What's in `data`?
 
-The `data` object is the part that actually tells you what happened. Its shape depends on the event type:
+The `data` object is the part that actually tells you what happened. Its shape depends on the event type. As of **v1.1.1**, the contact family carries an **identity baseline** (contactId, firstName, lastName, fullName, email, phone, isActive, contactGroupId, subGroupId, subGroupName) on every non-delete event — so partners can route, sync, and act on a single delivery without a follow-up state lookup. Additional fields gate behind PII subscription opt-ins.
 
 <CodeGroup>
 ```json contact.created
 {
-  "contactId": 9876,
-  "operation": "create"
+  "contactId":      9876,
+  "firstName":      "Jane",
+  "lastName":       "Doe",
+  "fullName":       "Jane Doe",
+  "email":          "jane@example.com",
+  "phone":          "+15551234567",
+  "isActive":       true,
+  "contactGroupId": 1,
+  "subGroupId":     null,
+  "subGroupName":   null,
+  "inquiryDate":    "2026-06-10T23:45:00.123Z",
+  "operation":      "create"
 }
 ```
 
 ```json contact.updated
 {
-  "contactId": 9876,
-  "operation": "update"
+  "contactId":      9876,
+  "firstName":      "Jane",
+  "lastName":       "Doe",
+  "fullName":       "Jane Doe",
+  "email":          "jane@example.com",
+  "phone":          "+15551234567",
+  "isActive":       true,
+  "contactGroupId": 3,
+  "subGroupId":     7,
+  "subGroupName":   "Gold Tier",
+  "operation":      "update"
 }
 ```
 
@@ -63,23 +82,50 @@ The `data` object is the part that actually tells you what happened. Its shape d
 
 ```json contact.status_changed
 {
-  "contactId":        9876,
-  "previousStatusId": 1,
-  "newStatusId":      3
+  "contactId":          9876,
+  "firstName":          "Jane",
+  "lastName":           "Doe",
+  "fullName":           "Jane Doe",
+  "email":              "jane@example.com",
+  "phone":              "+15551234567",
+  "isActive":           true,
+  "contactGroupId":     3,
+  "subGroupId":         null,
+  "subGroupName":       null,
+  "previousStatusId":   1,
+  "newStatusId":        3,
+  "previousStatusName": "Leads",
+  "newStatusName":      "Members"
 }
 ```
 
 ```json contact.sub_group_changed
 {
-  "contactId":          9876,
-  "previousSubGroupId": 3,
-  "newSubGroupId":      7
+  "contactId":            9876,
+  "firstName":            "Jane",
+  "lastName":             "Doe",
+  "fullName":             "Jane Doe",
+  "email":                "jane@example.com",
+  "phone":                "+15551234567",
+  "isActive":             true,
+  "contactGroupId":       3,
+  "subGroupId":           7,
+  "subGroupName":         "Gold Tier",
+  "previousSubGroupId":   3,
+  "newSubGroupId":        7,
+  "previousSubGroupName": "Bronze Tier",
+  "newSubGroupName":      "Gold Tier"
 }
 ```
 </CodeGroup>
 
 <Note>
-**Notice the pattern:** for "something changed from X to Y" events we send both the previous and new values. For "an action occurred" events we send the action and the affected resource ID. Your handler typically looks up the full current state via your own database, AI Search index, or eventually a FPT public API call — webhooks tell you *what changed and when*, not necessarily *the entire current state*.
+**Two patterns at play:**
+
+- **Identity baseline + diff** — non-delete events in the contact family carry the contact's identity (name, email, phone) so you can act on a single event without a state lookup. "Something changed" events (`status_changed`, `sub_group_changed`) add the before/after IDs and human-readable names.
+- **Signal-only** — `contact.deleted` ships only `{ contactId, operation: "delete" }`. The resource is gone; there's nothing to baseline.
+
+You can still call back to FPT's REST API (coming in v1.2) for state we don't carry inline, but the v1.1.1 baseline covers the common case where partners just want to sync the contact and route an automation.
 </Note>
 
 ## Request headers
@@ -90,14 +136,17 @@ Beyond the JSON body, every delivery includes:
 POST /your/path HTTP/1.1
 Content-Type:    application/json
 X-FPT-Signature: t=1717023600,v1=a3f8c2e7d1...
-User-Agent:      FitProTracker-Webhooks/1.1
+X-FPT-Event-Id:  9f1c7e2a8c4d4b1b9e3f5a6d7c8b9a0e
+User-Agent:      FitProTracker-Webhook/1.0
 ```
 
 | Header | Meaning |
 |---|---|
 | `X-FPT-Signature` | HMAC-SHA256 signature of `${timestamp}.${rawBody}` — see [Signature verification](/webhooks/signing) |
+| `X-FPT-Event-Id` | Convenience copy of the envelope's `eventId`. Lets you dedupe at the HTTP layer (before parsing JSON) if your stack benefits from that. Same value as `body.eventId`. |
+| `X-FPT-Test-Event` | Set to `true` **only on test events** fired from the admin's Send Test Event button (see [Testing](/webhooks/testing#recipe-0-send-a-test-event-from-the-fpt-admin)). Absent on production traffic. |
 | `Content-Type` | Always `application/json; charset=utf-8` |
-| `User-Agent` | `FitProTracker-Webhooks/<version>` — identifies the dispatcher version |
+| `User-Agent` | `FitProTracker-Webhook/1.0` for production; `FitProTracker-Webhook/1.0 (test)` for test events |
 
 ## Conventions
 

@@ -10,7 +10,7 @@ The four rules:
 
 1. **At-least-once.** We may deliver the same event more than once.
 2. **Dedupe by `eventId`.** It's a globally unique idempotency key.
-3. **Return 2xx within 30 seconds** or we treat it as a failure and retry.
+3. **Return 2xx within 10 seconds** or we treat it as a failure and retry.
 4. **Don't rely on ordering** between events. Use `eventTimestamp` to sort.
 </Warning>
 
@@ -76,23 +76,34 @@ RETURNING event_id;
 
 ## Retries and backoff
 
-If your endpoint fails (non-2xx response, timeout > 30s, connection refused), we retry on an exponential schedule:
+If your endpoint fails (non-2xx response, timeout > 10s, connection refused), the failed delivery is **redelivered by Azure Service Bus** under its default policy: exponential backoff in the seconds-to-tens-of-seconds range, up to a small handful of attempts (typically 5). After Service Bus exhausts retries, the message lands in a dead-letter queue and we stop trying for that specific event.
 
-| Attempt | Approximate delay since previous attempt |
-|---|---|
-| #2 | 1 minute |
-| #3 | 5 minutes |
-| #4 | 30 minutes |
-| #5 | 2 hours |
-| #6 | 8 hours |
-| #7 | 24 hours |
-| _then_ | Subscription marked unhealthy; deliveries paused; admin email sent |
+**Note this is per-event retry, not endpoint-level retry.** A handful of retries over ~minutes — not a long-tail schedule that spans hours.
 
-After 24 hours of total failure, your subscription enters a paused state and won't receive new events until an admin reactivates it in the FPT Settings → Webhook Endpoints page. We send an email when this happens.
+### Auto-pause on consecutive failures
+
+What protects you from a sustained outage is a separate mechanism: **three consecutive event-delivery failures in a row pauses the subscription**. The counter increments on each failed event and resets to zero on any 2xx response.
+
+| State | Trigger | Effect |
+|---|---|---|
+| Active, healthy | 2xx response | `consecutiveFailures` resets to 0 |
+| Active, one failure | first non-2xx | `consecutiveFailures = 1`; next event still attempted |
+| Active, two failures | second non-2xx in a row | `consecutiveFailures = 2`; one more chance |
+| **Paused** | **third non-2xx in a row** | `Status` → `paused`; no new events delivered until an admin resumes |
+
+When a subscription auto-pauses:
+- The admin grid renders a Paused badge on the row (amber dot + "Paused" pill).
+- FPT logs a Warning to elmah so internal monitoring catches it.
+- **In a near-term release**, the gym owner will get an email notification with a link to investigate. (v1.1 ships the admin-visible state + log signal; SendGrid email wiring lands in v1.1.x.)
+- An admin clicks the resume button (`▶`) in the actions column to flip back to active.
 
 <Tip>
-A 5-minute partner outage triggers maybe two retries and you recover transparently. A 6-hour outage will queue events but you'll still receive them eventually. A 48-hour outage requires manual reactivation — but no events are permanently lost as long as the subscription comes back within our retention window.
+A brief partner blip (a few seconds) triggers Service Bus retries and you recover transparently — your `consecutiveFailures` counter never gets to 1 if any of the SB redeliveries succeed. A multi-minute outage probably trips one event's full SB retry budget; if the very next event also fails, you're at 2; the one after that puts you in paused state. The auto-pause is intentionally conservative so a healthy long-running partner isn't paused by a single bad deploy window.
 </Tip>
+
+<Note>
+**Why not the long-tail retry schedule** (1min, 5min, 30min, ...)? In practice, partners who are down for an hour usually stay down for hours, and rapid auto-pause + visible admin signal beats invisible queueing. The 3-failure threshold is also the contract Close.com uses for the same reason.
+</Note>
 
 ## What counts as success vs failure
 
@@ -124,8 +135,8 @@ Each one prevents a specific support ticket we've seen with other webhook integr
 | Rule | Ticket it prevents |
 |---|---|
 | At-least-once + dedupe by eventId | "Our customer was charged twice / had two contacts created" |
-| 30-second timeout, return 2xx fast | "All our retries are firing because our endpoint is slow" |
+| 10-second timeout, return 2xx fast | "All our retries are firing because our endpoint is slow" |
 | 4xx vs 5xx distinction | "Our endpoint returned 400 for a transient DB error and we never got the event again" |
-| Exponential backoff | "We had a 5-minute outage and our subscription got disabled" |
+| Auto-pause threshold of 3 (not 1) consecutive failures | "A single transient blip auto-disabled our subscription overnight" |
 | No ordering guarantee | "Events arrived out of order and corrupted our state" |
 | HMAC signature verification | "How do we know it's really FitProTracker?" |

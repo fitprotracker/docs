@@ -231,16 +231,16 @@ app.MapPost("/webhooks/fpt", async (HttpContext ctx, IConfiguration cfg) =>
 
 Click **Rotate Key** on your subscription's row in Settings → Webhook Endpoints to issue a new secret. The dialog reveals the new secret once — save it.
 
-<Note>
-**Grace period after rotation:** for 24 hours after rotation, FPT signs deliveries with the NEW secret only — the old one is invalidated immediately. Plan rotations carefully:
+<Warning>
+**No grace period — the old secret is invalidated immediately on rotation.** There is no overlap window where both work. Plan the order carefully:
 
-1. Get the new secret in the FPT admin
-2. Deploy the new secret to your endpoint config
-3. Verify a test event lands successfully
-4. Done — the rotation is complete
+1. Rotate the secret in the FPT admin and save the new value
+2. Deploy the new secret to your endpoint config (or your secrets manager)
+3. Use [Send Test Event](/webhooks/testing#recipe-0-send-a-test-event-from-the-fpt-admin) to verify your endpoint accepts the new signature before relying on real traffic
+4. Done
 
-If you accidentally break a key (lose it, leak it), rotate immediately. Events delivered between the leak and the rotation should be considered untrusted.
-</Note>
+If you accidentally compromise a key (lose it, leak it, push it to a public repo), rotate immediately. Events delivered between the leak and the rotation should be considered untrusted.
+</Warning>
 
 ## Common verification mistakes
 

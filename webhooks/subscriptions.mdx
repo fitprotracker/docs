@@ -16,7 +16,7 @@ All subscription management happens in the FPT admin at **Settings → Webhook E
 | **Scope** | Either **location-level** (events only from one location) or **organization-level** (events from every location in your org). The default depends on your admin role. |
 | **PII categories** | What categories of personal data are included in payloads. Defaults match the most common partner use case; tighten if your contract requires it. |
 | **Signing secret** | The HMAC secret used to sign every delivery from this subscription. Revealed once when generated; rotatable. |
-| **Status** | `active`, `paused`, `disabled`. See [delivery semantics](/webhooks/delivery) for when these flip automatically. |
+| **Status** | `active` or `paused`. Flips to `paused` automatically after 3 consecutive delivery failures — see [delivery semantics](/webhooks/delivery#auto-pause-on-consecutive-failures). |
 
 ## Scope: location vs organization
 
@@ -72,14 +72,15 @@ See the [key rotation section in Signature verification](/webhooks/signing#key-r
 </Steps>
 
 <Warning>
-Rotation invalidates the old secret immediately. There's no grace period where both work. Plan your rotations during low-traffic windows or use the test-event flow to verify before broadcasting.
+Rotation invalidates the old secret immediately. There's no grace period where both work. Plan your rotations during low-traffic windows or use the [Send Test Event](/webhooks/testing#recipe-0-send-a-test-event-from-the-fpt-admin) flow to verify the new secret works before relying on real traffic.
 </Warning>
 
 ## Pausing and re-activating
 
 - A **paused** subscription stops receiving new events but isn't deleted. The configuration is preserved.
-- A subscription that fails for 24 hours straight automatically transitions to **disabled** — see [delivery semantics](/webhooks/delivery#retries-and-backoff). Re-enable from the same admin page.
-- **Disabled** subscriptions don't catch up on events missed while disabled. Re-enabling resumes delivery for *new* events going forward.
+- A subscription auto-pauses after **3 consecutive event-delivery failures** — see [delivery semantics](/webhooks/delivery#auto-pause-on-consecutive-failures). Resume it by clicking the `▶` resume button on the subscription row.
+- Paused subscriptions don't catch up on events missed while paused — resuming delivers *new* events going forward only. (Partner-initiated event replay is on the v1.3 roadmap.)
+- You can pause / resume manually any time using the same row actions, no auto-trigger required.
 
 ## Deletion
 

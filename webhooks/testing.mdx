@@ -5,6 +5,57 @@ description: "Recipes for end-to-end testing without bothering real data."
 
 A few well-trodden patterns for testing a webhook handler before pointing it at production traffic.
 
+## Recipe 0: Send a test event from the FPT admin
+
+The fastest end-to-end test, requiring no setup beyond an existing subscription. From the FPT admin's webhook-endpoints page, fire a single synthetic event to your URL on demand — signed with your real signing secret, so your verification code path is exercised exactly as production traffic would exercise it.
+
+<Steps>
+  <Step title="Open Settings → Webhook Endpoints">
+    Find your subscription's row in the grid. The first action button (paper-plane icon) is **Send test event**.
+  </Step>
+  <Step title="Pick an event type">
+    A small dialog opens with radio buttons for each event type **your subscription is subscribed to** (we filter the choices so you can't test something you wouldn't receive in production).
+  </Step>
+  <Step title="Click Send">
+    FPT builds a synthetic payload, signs it with your subscription's secret, POSTs to your URL with a 10-second timeout, and records the attempt.
+  </Step>
+  <Step title="Read the result">
+    The dialog shows the HTTP status pill, request duration, and the `eventId` we generated. On non-2xx, you also get the error message. Click **Send again** to re-fire the same event type.
+  </Step>
+</Steps>
+
+### How test events look on the wire
+
+Test events are intentionally distinguishable from production traffic, so your handler can branch (or just dedupe) on them:
+
+| Marker | Where | Value |
+|---|---|---|
+| `eventId` prefix | envelope | `test_` followed by 32 hex chars (e.g. `test_a3f8c2e7d1...`) |
+| `_test: true` flag | inside `data` | Boolean. Present only on synthetic events. |
+| `X-FPT-Test-Event` | header | `true` |
+| `User-Agent` | header | suffix ` (test)` (full: `FitProTracker-Webhook/1.0 (test)`) |
+| `contactId` | inside `data` | `-1` (synthetic, never collides with a real contact) |
+
+### Recommended handler pattern
+
+```javascript
+app.post("/webhooks/fpt", (req, res) => {
+    // ... verify signature, dedupe by eventId ...
+
+    if (req.body.data?._test === true) {
+        // Test event — log, ack 200, skip side effects
+        console.log("Test event received:", req.body.eventId);
+        return res.status(200).end();
+    }
+
+    // Real event — process normally
+});
+```
+
+<Note>
+Test deliveries are recorded in the FPT admin's deliveries history with `attemptNumber: 0`, so you can distinguish them from production traffic (which always starts at `attemptNumber: 1`).
+</Note>
+
 ## Recipe 1: webhook.site (zero-code receiver)
 
 The fastest possible test. Use webhook.site to capture raw POSTs and inspect them without writing any code.
@@ -113,7 +164,7 @@ test("handles contact.sub_group_changed", async () => {
         eventTimestamp: new Date().toISOString(),
         locationId: 1234,
         organizationId: 5678,
-        apiVersion: "v1",
+        apiVersion: "2026-05-29",
         data: { contactId: 9876, previousSubGroupId: 3, newSubGroupId: 7 },
     };
     const req = buildSignedRequest(event, process.env.FPT_WEBHOOK_SECRET);
@@ -146,7 +197,7 @@ def test_handles_contact_sub_group_changed():
         "eventTimestamp": "2026-06-10T23:45:00Z",
         "locationId": 1234,
         "organizationId": 5678,
-        "apiVersion": "v1",
+        "apiVersion": "2026-05-29",
         "data": {"contactId": 9876, "previousSubGroupId": 3, "newSubGroupId": 7},
     }
     req = build_signed_request(event, os.environ["FPT_WEBHOOK_SECRET"])
@@ -155,12 +206,6 @@ def test_handles_contact_sub_group_changed():
     # ... assert your side effects
 ```
 </CodeGroup>
-
-## Coming soon — "Send test event" button
-
-<Info>
-A **"Send test event"** action is on the roadmap. From your endpoint's row in Settings → Webhook Endpoints, click the button to fire a synthetic event of any type to your URL. You'll see the request, response status, and body inline — no need to modify real data.
-</Info>
 
 ## Common gotchas
 
