@@ -14,10 +14,13 @@ The fastest end-to-end test, requiring no setup beyond an existing subscription.
     Find your subscription's row in the grid. The first action button (paper-plane icon) is **Send test event**.
   </Step>
   <Step title="Pick an event type">
-    A small dialog opens with radio buttons for each event type **your subscription is subscribed to** (we filter the choices so you can't test something you wouldn't receive in production).
+    A dialog opens with radio buttons for each event type **your subscription is subscribed to** (we filter the choices so you can't test something you wouldn't receive in production).
+  </Step>
+  <Step title="Inspect the payload preview">
+    Below the event selector, FPT shows the **exact JSON body that will be POSTed** to your endpoint — refreshed live every time you change the event type. Use the copy button to grab the payload for your own unit-test fixtures without ever firing a real send. `eventId` and `eventTimestamp` get regenerated on actual send; everything else matches.
   </Step>
   <Step title="Click Send">
-    FPT builds a synthetic payload, signs it with your subscription's secret, POSTs to your URL with a 10-second timeout, and records the attempt.
+    FPT builds the same payload again with a fresh `eventId`/`eventTimestamp`, signs it with your subscription's secret, POSTs to your URL with a 10-second timeout, and records the attempt.
   </Step>
   <Step title="Read the result">
     The dialog shows the HTTP status pill, request duration, and the `eventId` we generated. On non-2xx, you also get the error message. Click **Send again** to re-fire the same event type.
